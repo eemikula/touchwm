@@ -1,14 +1,14 @@
-LIBS = `pkg-config --libs --cflags xcb`
-OBJS = wm.o #display.o window.o
+LIBS = `pkg-config --libs --cflags xcb` -pthread
+OBJS = wm.o window.o screen.o
 PROGRAM = wm 
 
 all: $(PROGRAM)
 
 $(PROGRAM) : $(OBJS)
-	g++ -o wm $(OBJS) $(LIBS)
+	g++ -g -o wm $(OBJS) $(LIBS)
 
 clean:
-	rm $(OBJS)
+	rm $(OBJS) $(PROGRAM)
 
 %.o : %.cpp
 	g++ -c -o $@ $< $(CFLAGS)
