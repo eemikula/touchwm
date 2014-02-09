@@ -14,6 +14,7 @@ AC_PROG_CC
 # Checks for libraries.
 # FIXME: Replace `main' with a function in `-lxcb':
 AC_CHECK_LIB([xcb], [main])
+AC_CHECK_LIB([xcb-xinput], [main])
 
 # Checks for header files.
 
