@@ -6,8 +6,8 @@
 /* Define to 1 if you have the `xcb' library (-lxcb). */
 #undef HAVE_LIBXCB
 
-/* Define to 1 if you have the `xi' library (-lxi). */
-#undef HAVE_LIBXI
+/* Define to 1 if you have the `xcb-xinput' library (-lxcb-xinput). */
+#undef HAVE_LIBXCB_XINPUT
 
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H

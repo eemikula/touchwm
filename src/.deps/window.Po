@@ -55,13 +55,13 @@ window.o: window.cpp /usr/include/stdc-predef.h window.h \
  /usr/include/bits/timex.h /usr/include/bits/pthreadtypes.h \
  /usr/include/bits/setjmp.h \
  /usr/include/c++/4.8.2/x86_64-redhat-linux/bits/atomic_word.h \
- /usr/include/c++/4.8.2/bits/basic_string.tcc /usr/include/xcb/xcb.h \
- /usr/include/sys/types.h /usr/include/sys/select.h \
- /usr/include/bits/select.h /usr/include/bits/sigset.h \
- /usr/include/sys/sysmacros.h \
+ /usr/include/c++/4.8.2/bits/basic_string.tcc \
+ /usr/local/include/xcb/xcb.h /usr/include/sys/types.h \
+ /usr/include/sys/select.h /usr/include/bits/select.h \
+ /usr/include/bits/sigset.h /usr/include/sys/sysmacros.h \
  /usr/lib/gcc/x86_64-redhat-linux/4.8.2/include/stdint.h \
  /usr/include/stdint.h /usr/include/sys/uio.h /usr/include/bits/uio.h \
- /usr/include/xcb/xproto.h /usr/include/xcb/xcb.h \
+ /usr/local/include/xcb/xproto.h /usr/local/include/xcb/xcb.h \
  /usr/include/c++/4.8.2/cstdlib /usr/include/stdlib.h \
  /usr/include/bits/waitflags.h /usr/include/bits/waitstatus.h \
  /usr/include/alloca.h /usr/include/bits/stdlib-bsearch.h \
@@ -221,7 +221,7 @@ window.h:
 
 /usr/include/c++/4.8.2/bits/basic_string.tcc:
 
-/usr/include/xcb/xcb.h:
+/usr/local/include/xcb/xcb.h:
 
 /usr/include/sys/types.h:
 
@@ -241,9 +241,9 @@ window.h:
 
 /usr/include/bits/uio.h:
 
-/usr/include/xcb/xproto.h:
+/usr/local/include/xcb/xproto.h:
 
-/usr/include/xcb/xcb.h:
+/usr/local/include/xcb/xcb.h:
 
 /usr/include/c++/4.8.2/cstdlib:
 

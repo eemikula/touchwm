@@ -43,3 +43,23 @@ void Window::Move(int x, int y){
 	xcb_request_check(connection, cookie);
 }
 
+void Window::Expand(int width, int height, bool xshift, bool yshift){
+
+	xcb_generic_error_t *error = NULL;
+	xcb_get_geometry_cookie_t c = xcb_get_geometry(connection, window);
+	xcb_get_geometry_reply_t *r = xcb_get_geometry_reply(connection, c, &error);
+	if (error){
+		return;
+	}
+
+	uint32_t values[4];
+	values[0] = xshift ? r->x-width : r->x;
+	values[1] = yshift ? r->y-height : r->y;
+	values[2] = r->width+width;
+	values[3] = r->height+height;
+	xcb_void_cookie_t cookie = xcb_configure_window_checked(connection, window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, values);
+	xcb_request_check(connection, cookie);
+
+	if (r)
+		free(r);
+}

@@ -1,9 +1,9 @@
 screen.o: screen.cpp /usr/include/stdc-predef.h screen.h \
- /usr/include/xcb/xcb.h /usr/include/sys/types.h /usr/include/features.h \
- /usr/include/sys/cdefs.h /usr/include/bits/wordsize.h \
- /usr/include/gnu/stubs.h /usr/include/gnu/stubs-64.h \
- /usr/include/bits/types.h /usr/include/bits/typesizes.h \
- /usr/include/time.h \
+ /usr/local/include/xcb/xcb.h /usr/include/sys/types.h \
+ /usr/include/features.h /usr/include/sys/cdefs.h \
+ /usr/include/bits/wordsize.h /usr/include/gnu/stubs.h \
+ /usr/include/gnu/stubs-64.h /usr/include/bits/types.h \
+ /usr/include/bits/typesizes.h /usr/include/time.h \
  /usr/lib/gcc/x86_64-redhat-linux/4.8.2/include/stddef.h \
  /usr/include/endian.h /usr/include/bits/endian.h \
  /usr/include/bits/byteswap.h /usr/include/bits/byteswap-16.h \
@@ -15,7 +15,7 @@ screen.o: screen.cpp /usr/include/stdc-predef.h screen.h \
  /usr/include/bits/uio.h /usr/include/pthread.h /usr/include/sched.h \
  /usr/include/bits/sched.h /usr/include/bits/timex.h \
  /usr/include/xlocale.h /usr/include/bits/setjmp.h \
- /usr/include/xcb/xproto.h /usr/include/xcb/xcb.h window.h \
+ /usr/local/include/xcb/xproto.h /usr/local/include/xcb/xcb.h window.h \
  /usr/include/c++/4.8.2/list /usr/include/c++/4.8.2/bits/stl_algobase.h \
  /usr/include/c++/4.8.2/x86_64-redhat-linux/bits/c++config.h \
  /usr/include/c++/4.8.2/x86_64-redhat-linux/bits/os_defines.h \
@@ -66,7 +66,7 @@ screen.o: screen.cpp /usr/include/stdc-predef.h screen.h \
 
 screen.h:
 
-/usr/include/xcb/xcb.h:
+/usr/local/include/xcb/xcb.h:
 
 /usr/include/sys/types.h:
 
@@ -130,9 +130,9 @@ screen.h:
 
 /usr/include/bits/setjmp.h:
 
-/usr/include/xcb/xproto.h:
+/usr/local/include/xcb/xproto.h:
 
-/usr/include/xcb/xcb.h:
+/usr/local/include/xcb/xcb.h:
 
 window.h:
 

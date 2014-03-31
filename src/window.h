@@ -13,6 +13,7 @@ public:
 	std::list<Window> GetChildren();
 	std::string GetTitle();
 	void Move(int x, int y);
+	void Expand(int width, int height, bool xshift, bool yshift);
 
 	operator xcb_window_t (){return window;}
 	xcb_window_t window;

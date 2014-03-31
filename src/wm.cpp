@@ -4,10 +4,11 @@ Window manager?
 
 #include <iostream>
 #include <list>
-
+#include <cmath>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+
 #include <pthread.h>
 
 #include <xcb/xcb.h>
@@ -17,8 +18,10 @@ Window manager?
 
 int main(int argc, char* argv[]){
 
+  std::cout << "XCB input version: " << XCB_INPUT_MAJOR_VERSION << "." << XCB_INPUT_MINOR_VERSION << "\n";
+
 	WindowManager wm;
-	/*ScreenList screens = wm.GetScreens();
+	ScreenList screens = wm.GetScreens();
 	if (screens.size() == 0){
 		std::cerr << "No screens found\n";
 		return 1;
@@ -38,7 +41,7 @@ int main(int argc, char* argv[]){
 	pthread_create(&thread, NULL, WindowManager::EventThread, (void*)&arg);
 
 	void *result;
-	pthread_join(thread, &result);*/
+	pthread_join(thread, &result);
 }
 
 void *WindowManager::EventThread(void *arg){
@@ -62,65 +65,47 @@ WindowManager::WindowManager(){
 	}
 
 	xcb_generic_error_t *error;
-	xcb_input_list_input_devices_cookie_t cookie = xcb_input_list_input_devices(connection);
-	xcb_input_list_input_devices_reply_t *reply = xcb_input_list_input_devices_reply (connection, cookie, &error);
+	xcb_input_xi_query_device_cookie_t cookie = xcb_input_xi_query_device_unchecked(connection, XCB_INPUT_DEVICE_ALL);
+	xcb_input_xi_query_device_reply_t *reply = xcb_input_xi_query_device_reply(connection, cookie, &error);
 	if (error){
-		std::cerr << "error!\n";
+		std::cerr << "query device error\n";
 		free(error);
 	}
-	
-	xcb_input_device_info_iterator_t itr = xcb_input_list_input_devices_devices_iterator(reply);
-	for (; itr.rem; xcb_input_device_info_next(&itr)){
-		std::cout << "device: " << (int)itr.data->device_id;// << "\n";
-		//std::cout << "\tdevice_type:" << "\n";
-		std::cout << "\tnum_class_info: ";
-		switch ((int)itr.data->num_class_info){
-		case XCB_INPUT_DEVICE_CLASS_TYPE_KEY:
-			std::cout << "key\n";
-			break;
-		case XCB_INPUT_DEVICE_CLASS_TYPE_BUTTON:
-			std::cout << "button\n";
-			break;
-		case XCB_INPUT_DEVICE_CLASS_TYPE_VALUATOR:
-			std::cout << "valuator\n";
-			break;
-		case XCB_INPUT_DEVICE_CLASS_TYPE_SCROLL:
-			std::cout << "scroll\n";
-			break;
-		case XCB_INPUT_DEVICE_CLASS_TYPE_TOUCH:
-			std::cout << "touch\n";
-			break;
-		default:
-			std::cout << "unknown\n";
-		}
-		//std::cout << "\tdevice_use:" << (int)itr.data->device_use << "\n";
-	}
-
 	if (reply)
 		free(reply);
 
-	/*XIDeviceInfo *info;
-	int nevices;
-
-	info = XIQueryDevice(display, XIAllDevices, &ndevices);
-
-	for (i = 0; i < ndevices; i++)
-	{
-	    XIDeviceInfo *dev = &info[i];
-	    printf("Device name %d\n", dev->name);
-	    for (j = 0; j < dev->num_classes; j++)
-	    {
+	xcb_input_xi_device_info_iterator_t itr = xcb_input_xi_query_device_infos_iterator(reply);
+	for (; itr.rem; xcb_input_xi_device_info_next(&itr)){
+		std::cout << "Device id: " << itr.data->deviceid << "\n";
+		std::cout << "\tname: " << xcb_input_xi_device_info_name(itr.data) << "\n";
+		xcb_input_device_class_iterator_t i = xcb_input_xi_device_info_classes_iterator(itr.data);
+		for (; i.rem; xcb_input_device_class_next(&i)){
+			/*if (i.data->type != XCB_INPUT_DEVICE_CLASS_TYPE_TOUCH)
+				std::cout << "\tsupports touch\n";
+			else
+				continue;*/
+		}
+		/*XIDeviceInfo *dev = &info[i];
+		printf("Device name %d\n", dev->name);
+		for (j = 0; j < dev->num_classes; j++)
+		{
 		XIAnyClassInfo *class = dev->classes[j];
 		XITouchClassInfo *t = (XITouchClassInfo*)class;
 
 		if (class->type != XITouchClass)
-		    continue;
+			continue;
 
 		printf("%s touch device, supporting %d touches.\n",
-		       (t->mode == XIDirectTouch) ?  "direct" : "dependent",
-		       t->num_touches);
-	    }
-	}*/
+			   (t->mode == XIDirectTouch) ?  "direct" : "dependent",
+			   t->num_touches);
+		}*/
+	}
+
+	xcb_input_xi_query_version_cookie_t c = xcb_input_xi_query_version_unchecked(connection, 2, 2);
+	xcb_input_xi_query_version_reply_t *r = xcb_input_xi_query_version_reply(connection, c, &error);
+	std::cout << "xcb input version: " << r->major_version << "." << r->minor_version << "\n";
+	if (r)
+		free(r);
 
 }
 
@@ -172,7 +157,7 @@ void WindowManager::AddWindow(Window &window){
 	cookie = xcb_map_window_checked(connection, window);
 	error = xcb_request_check(connection, cookie);
 
-	xcb_grab_button(connection,
+	/*xcb_grab_button(connection,
 						false,
 						window,
 						XCB_EVENT_MASK_BUTTON_PRESS |
@@ -185,8 +170,95 @@ void WindowManager::AddWindow(Window &window){
 						XCB_BUTTON_INDEX_ANY,
 						//XCB_MOD_MASK_1 | XCB_MOD_MASK_2);
 						XCB_MOD_MASK_ANY);
+	xcb_flush(connection);*/
+
+	const uint32_t mask[] = {XCB_INPUT_XI_EVENT_MASK_TOUCH_BEGIN
+							| XCB_INPUT_XI_EVENT_MASK_TOUCH_UPDATE
+							| XCB_INPUT_XI_EVENT_MASK_TOUCH_END
+	};
+	const uint32_t modifiers[] = {XCB_INPUT_MODIFIER_MASK_ANY};
+	xcb_input_xi_passive_grab_device_cookie_t c = xcb_input_xi_passive_grab_device(
+			connection,
+			XCB_CURRENT_TIME,
+			window,
+			XCB_CURSOR_NONE,
+			0, // detail - as used by XIPassiveGrab
+			XCB_INPUT_DEVICE_ALL_MASTER,
+			1, // num_modifiers
+			1, // mask_len
+			XCB_INPUT_GRAB_TYPE_TOUCH_BEGIN,
+			XCB_INPUT_GRAB_MODE_22_TOUCH,
+			XCB_INPUT_GRAB_MODE_22_ASYNC,
+			XCB_INPUT_GRAB_OWNER_NO_OWNER,
+			mask,
+			modifiers);
+	xcb_input_xi_passive_grab_device_reply_t *r = xcb_input_xi_passive_grab_device_reply(connection, c, &error);
+	if (error){
+		OutputError(*error);
+		free(error);
+	}
+
 	xcb_flush(connection);
 }
+
+void WindowManager::OutputError(xcb_generic_error_t &e){
+	std::cerr << "Error code " << (int)e.error_code << ": Major " << (int)e.major_code << " minor " << (int)e.minor_code << "\n";
+}
+
+WindowManager::Touch *WindowManager::GetNearestTouch(int x, int y){
+
+	Touch *t = NULL;
+	double d = 0.0;
+	for (TouchList::iterator itr = touch.begin(); itr != touch.end(); itr++){
+
+		if (t == NULL){
+			t = &(*itr);
+			d = sqrt(pow(x-itr->x, 2)+pow(y-itr->y, 2));
+			continue;
+		}
+
+		double distance = sqrt(pow(x-itr->x, 2)+pow(y-itr->y, 2));
+		if (distance < d){
+			t = &(*itr);
+			d = distance;
+		}
+
+	}
+
+	return t;
+}
+
+WindowManager::Touch *WindowManager::GetTouch(unsigned int id){
+	Touch *t = NULL;
+	for (TouchList::iterator itr = touch.begin(); itr != touch.end(); itr++){
+		if (itr->id == id)
+			return &(*itr);
+	}
+	return t;
+}
+
+/*WindowManager::TouchList::iterator WindowManager::GetNearestTouch(int x, int y){
+
+	TouchList::iterator i = touch.end();
+	double d = 0.0;
+	for (TouchList::iterator itr = touch.begin(); itr != touch.end(); itr++){
+
+		if (i == touch.end()){
+			i = itr;
+			d = sqrt(pow(x-itr->x, 2)+pow(y-itr->y, 2));
+			continue;
+		}
+
+		double distance = sqrt(pow(x-itr->x, 2)+pow(y-itr->y, 2));
+		if (distance < d){
+			i = itr;
+			d = distance;
+		}
+
+	}
+
+	return touch.end();
+}*/
 
 xcb_generic_event_t *WindowManager::WaitForEvent(){
 	return xcb_wait_for_event(connection);
@@ -211,6 +283,27 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 	case XCB_MOTION_NOTIFY:{
 		std::cout << "motion\n";
 		HandleMotion(*(xcb_motion_notify_event_t*)e);
+		break;
+	}
+	case XCB_GE_GENERIC:{
+		xcb_ge_generic_event_t *ge = (xcb_ge_generic_event_t*)e;
+		switch (ge->event_type){
+		case XCB_INPUT_TOUCH_BEGIN:
+			HandleTouchBegin(*(xcb_input_touch_begin_event_t*)e);
+			break;
+		case XCB_INPUT_TOUCH_UPDATE:
+			HandleTouchUpdate(*(xcb_input_touch_update_event_t*)e);
+			break;
+		case XCB_INPUT_TOUCH_END:
+			HandleTouchEnd(*(xcb_input_touch_end_event_t*)e);
+			break;
+		case XCB_INPUT_TOUCH_OWNERSHIP:
+			std::cout << "Touch ownership\n";
+			HandleTouchOwnership(*(xcb_input_touch_ownership_event_t*)e);
+			break;
+		default:
+			std::cout << "Unknown generic event " << ge->event_type << "\n";
+		}
 		break;
 	}
 	default:
@@ -279,5 +372,79 @@ void WindowManager::HandleMotion(xcb_motion_notify_event_t &e){
 		//xcb_allow_events(connection, XCB_ALLOW_REPLAY_POINTER, XCB_CURRENT_TIME);
 		//xcb_flush(connection);
 	}
+}
+
+void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
+
+	// always raise window on press
+	xcb_void_cookie_t cookie;
+	const static uint32_t values[] = { XCB_STACK_MODE_ABOVE };
+	xcb_configure_window(connection, e.event, XCB_CONFIG_WINDOW_STACK_MODE, values);
+	xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, e.event, XCB_CURRENT_TIME);
+	xcb_flush(connection);
+
+	touch.push_back(Touch(e.detail, e.event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
+}
+
+void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
+
+	double x = e.root_x / 65536.0;
+	double y = e.root_y / 65536.0;
+	Touch *t = GetTouch(e.detail);
+	if (!t){
+		std::cerr << "Unknown touch\n";
+		return;
+	}
+
+	// one touch - move
+	if (touch.size() == 1){
+		Window w(connection, t->window);
+		double xpos = x-t->xoff;
+		double ypos = y-t->yoff;
+		w.Move(xpos, ypos);
+
+	// two touches - resize
+	} else if (touch.size() == 2){
+
+		Touch *ot = NULL;
+		if (&touch[0] == t)
+			ot = &touch[1];
+		else
+			ot = &touch[0];
+
+		// determine the change in distance between the two touches
+		int dx = abs(touch[0].x-touch[1].x);
+		int dy = abs(touch[0].y-touch[1].y);
+
+		bool xshift = false, yshift = false;
+		if (x < ot->x)
+			xshift = true;
+		if (y < ot->y)
+			yshift = true;
+
+		// update the touch
+		t->x = x;
+		t->y = y;
+
+		dx = abs(touch[0].x-touch[1].x)-dx;
+		dy = abs(touch[0].y-touch[1].y)-dy;
+
+		Window w(connection, t->window);
+		w.Expand(dx, dy, xshift, yshift);
+
+	}
+}
+
+void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
+	for (TouchList::iterator itr = touch.begin(); itr != touch.end(); itr++){
+		if (itr->id == e.detail){
+			touch.erase(itr);
+			break;
+		}
+	}
+}
+
+void WindowManager::HandleTouchOwnership(xcb_input_touch_ownership_event_t &e){
+
 }
 

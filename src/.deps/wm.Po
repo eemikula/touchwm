@@ -70,7 +70,12 @@ wm.o: wm.cpp /usr/include/stdc-predef.h /usr/include/c++/4.8.2/iostream \
  /usr/include/c++/4.8.2/bits/ostream.tcc /usr/include/c++/4.8.2/istream \
  /usr/include/c++/4.8.2/bits/istream.tcc /usr/include/c++/4.8.2/list \
  /usr/include/c++/4.8.2/bits/stl_list.h \
- /usr/include/c++/4.8.2/bits/list.tcc /usr/include/c++/4.8.2/cstdlib \
+ /usr/include/c++/4.8.2/bits/list.tcc /usr/include/c++/4.8.2/cmath \
+ /usr/include/math.h /usr/include/bits/huge_val.h \
+ /usr/include/bits/huge_valf.h /usr/include/bits/huge_vall.h \
+ /usr/include/bits/inf.h /usr/include/bits/nan.h \
+ /usr/include/bits/mathdef.h /usr/include/bits/mathcalls.h \
+ /usr/include/bits/mathinline.h /usr/include/c++/4.8.2/cstdlib \
  /usr/include/stdlib.h /usr/include/bits/waitflags.h \
  /usr/include/bits/waitstatus.h /usr/include/sys/types.h \
  /usr/include/sys/select.h /usr/include/bits/select.h \
@@ -80,11 +85,19 @@ wm.o: wm.cpp /usr/include/stdc-predef.h /usr/include/c++/4.8.2/iostream \
  /usr/include/libio.h /usr/include/_G_config.h \
  /usr/include/bits/stdio_lim.h /usr/include/bits/sys_errlist.h \
  /usr/include/bits/stdio.h /usr/include/c++/4.8.2/cstring \
- /usr/include/string.h /usr/include/xcb/xcb.h \
+ /usr/include/string.h /usr/local/include/xcb/xcb.h \
  /usr/lib/gcc/x86_64-redhat-linux/4.8.2/include/stdint.h \
  /usr/include/stdint.h /usr/include/sys/uio.h /usr/include/bits/uio.h \
- /usr/include/xcb/xproto.h /usr/include/xcb/xcb.h \
- /usr/include/xcb/xinput.h wm.h screen.h window.h
+ /usr/local/include/xcb/xproto.h /usr/local/include/xcb/xcb.h \
+ /usr/local/include/xcb/xinput.h /usr/local/include/xcb/render.h \
+ /usr/local/include/xcb/shape.h /usr/local/include/xcb/xfixes.h wm.h \
+ /usr/include/c++/4.8.2/vector \
+ /usr/include/c++/4.8.2/bits/stl_construct.h \
+ /usr/include/c++/4.8.2/ext/alloc_traits.h \
+ /usr/include/c++/4.8.2/bits/stl_uninitialized.h \
+ /usr/include/c++/4.8.2/bits/stl_vector.h \
+ /usr/include/c++/4.8.2/bits/stl_bvector.h \
+ /usr/include/c++/4.8.2/bits/vector.tcc screen.h window.h
 
 /usr/include/stdc-predef.h:
 
@@ -278,6 +291,26 @@ wm.o: wm.cpp /usr/include/stdc-predef.h /usr/include/c++/4.8.2/iostream \
 
 /usr/include/c++/4.8.2/bits/list.tcc:
 
+/usr/include/c++/4.8.2/cmath:
+
+/usr/include/math.h:
+
+/usr/include/bits/huge_val.h:
+
+/usr/include/bits/huge_valf.h:
+
+/usr/include/bits/huge_vall.h:
+
+/usr/include/bits/inf.h:
+
+/usr/include/bits/nan.h:
+
+/usr/include/bits/mathdef.h:
+
+/usr/include/bits/mathcalls.h:
+
+/usr/include/bits/mathinline.h:
+
 /usr/include/c++/4.8.2/cstdlib:
 
 /usr/include/stdlib.h:
@@ -318,7 +351,7 @@ wm.o: wm.cpp /usr/include/stdc-predef.h /usr/include/c++/4.8.2/iostream \
 
 /usr/include/string.h:
 
-/usr/include/xcb/xcb.h:
+/usr/local/include/xcb/xcb.h:
 
 /usr/lib/gcc/x86_64-redhat-linux/4.8.2/include/stdint.h:
 
@@ -328,13 +361,33 @@ wm.o: wm.cpp /usr/include/stdc-predef.h /usr/include/c++/4.8.2/iostream \
 
 /usr/include/bits/uio.h:
 
-/usr/include/xcb/xproto.h:
+/usr/local/include/xcb/xproto.h:
 
-/usr/include/xcb/xcb.h:
+/usr/local/include/xcb/xcb.h:
 
-/usr/include/xcb/xinput.h:
+/usr/local/include/xcb/xinput.h:
+
+/usr/local/include/xcb/render.h:
+
+/usr/local/include/xcb/shape.h:
+
+/usr/local/include/xcb/xfixes.h:
 
 wm.h:
+
+/usr/include/c++/4.8.2/vector:
+
+/usr/include/c++/4.8.2/bits/stl_construct.h:
+
+/usr/include/c++/4.8.2/ext/alloc_traits.h:
+
+/usr/include/c++/4.8.2/bits/stl_uninitialized.h:
+
+/usr/include/c++/4.8.2/bits/stl_vector.h:
+
+/usr/include/c++/4.8.2/bits/stl_bvector.h:
+
+/usr/include/c++/4.8.2/bits/vector.tcc:
 
 screen.h:
 
