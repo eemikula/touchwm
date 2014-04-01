@@ -24,8 +24,6 @@ public:
 
 	void HandleEvent(xcb_generic_event_t *e);
 
-	static void *EventThread(void *arg);
-
 private:
 
 	struct Touch {
@@ -38,12 +36,6 @@ private:
 			this->yoff = y;
 		}
 
-		/*bool operator == (const Touch &t) const {
-			return window == t.window
-					&& x == t.x && y == t.y
-					&& xoff == t.xoff && yoff == t.yoff;
-		}*/
-
 		xcb_window_t window;
 		int x, y;
 		int xoff, yoff;
@@ -54,14 +46,13 @@ private:
 
 	xcb_connection_t *connection;
 	TouchList touch;
+	bool captureTouch;
 	xcb_window_t clickWindow;
 	int xoff, yoff;
 
 	void OutputError(xcb_generic_error_t &e);
 
 	Touch *GetTouch(unsigned int id);
-	Touch *GetNearestTouch(int x, int y);
-	//TouchList::iterator GetNearestTouch(int x, int y);
 
 	void HandleMapRequest(xcb_map_request_event_t &e);
 	void HandleButtonPress(xcb_button_press_event_t &e);
@@ -70,7 +61,6 @@ private:
 	void HandleTouchBegin(xcb_input_touch_begin_event_t &e);
 	void HandleTouchUpdate(xcb_input_touch_update_event_t &e);
 	void HandleTouchEnd(xcb_input_touch_end_event_t &e);
-	void HandleTouchOwnership(xcb_input_touch_ownership_event_t &e);
 
 	void SendEvent(xcb_window_t window, xcb_generic_event_t &e, xcb_event_mask_t mask);
 };

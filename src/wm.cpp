@@ -1,5 +1,5 @@
 /*
-Window manager?
+Touchscreen Window Manager prototype
 */
 
 #include <iostream>
@@ -8,8 +8,6 @@ Window manager?
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
-
-#include <pthread.h>
 
 #include <xcb/xcb.h>
 #include <xcb/xinput.h>
@@ -36,28 +34,18 @@ int main(int argc, char* argv[]){
 
 	}
 
-	pthread_t thread;
-	EventThreadArg arg(wm);
-	pthread_create(&thread, NULL, WindowManager::EventThread, (void*)&arg);
-
-	void *result;
-	pthread_join(thread, &result);
-}
-
-void *WindowManager::EventThread(void *arg){
-	EventThreadArg *args = (EventThreadArg*)arg;
-	WindowManager &wm = args->wm;
 	while (xcb_generic_event_t *e = wm.WaitForEvent()){
 		wm.HandleEvent(e);
 		free(e);
 	}
-	return NULL;
+	return 0;
 }
 
 WindowManager::WindowManager(){
 
 	connection = xcb_connect (NULL, NULL);
 	clickWindow = 0;
+	captureTouch = false;
 
 	if (connection == NULL){
 		std::cerr << "Unable to get connection\n";
@@ -125,12 +113,7 @@ ScreenList WindowManager::GetScreens(){
 
 bool WindowManager::Redirect(Screen &screen){
 
-	const static uint32_t values[] = {	XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT/* | 
-						XCB_EVENT_MASK_BUTTON_PRESS |
-						XCB_EVENT_MASK_BUTTON_RELEASE |
-						//XCB_EVENT_MASK_POINTER_MOTION
-						XCB_EVENT_MASK_BUTTON_1_MOTION*/
-					 };
+	const static uint32_t values[] = {	XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT };
 
 	Window rootWindow = screen.GetRoot();
 	xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(connection, rootWindow, XCB_CW_EVENT_MASK, values);
@@ -157,7 +140,7 @@ void WindowManager::AddWindow(Window &window){
 	cookie = xcb_map_window_checked(connection, window);
 	error = xcb_request_check(connection, cookie);
 
-	/*xcb_grab_button(connection,
+	xcb_grab_button(connection,
 						false,
 						window,
 						XCB_EVENT_MASK_BUTTON_PRESS |
@@ -170,7 +153,7 @@ void WindowManager::AddWindow(Window &window){
 						XCB_BUTTON_INDEX_ANY,
 						//XCB_MOD_MASK_1 | XCB_MOD_MASK_2);
 						XCB_MOD_MASK_ANY);
-	xcb_flush(connection);*/
+	//xcb_flush(connection);
 
 	const uint32_t mask[] = {XCB_INPUT_XI_EVENT_MASK_TOUCH_BEGIN
 							| XCB_INPUT_XI_EVENT_MASK_TOUCH_UPDATE
@@ -205,29 +188,6 @@ void WindowManager::OutputError(xcb_generic_error_t &e){
 	std::cerr << "Error code " << (int)e.error_code << ": Major " << (int)e.major_code << " minor " << (int)e.minor_code << "\n";
 }
 
-WindowManager::Touch *WindowManager::GetNearestTouch(int x, int y){
-
-	Touch *t = NULL;
-	double d = 0.0;
-	for (TouchList::iterator itr = touch.begin(); itr != touch.end(); itr++){
-
-		if (t == NULL){
-			t = &(*itr);
-			d = sqrt(pow(x-itr->x, 2)+pow(y-itr->y, 2));
-			continue;
-		}
-
-		double distance = sqrt(pow(x-itr->x, 2)+pow(y-itr->y, 2));
-		if (distance < d){
-			t = &(*itr);
-			d = distance;
-		}
-
-	}
-
-	return t;
-}
-
 WindowManager::Touch *WindowManager::GetTouch(unsigned int id){
 	Touch *t = NULL;
 	for (TouchList::iterator itr = touch.begin(); itr != touch.end(); itr++){
@@ -236,29 +196,6 @@ WindowManager::Touch *WindowManager::GetTouch(unsigned int id){
 	}
 	return t;
 }
-
-/*WindowManager::TouchList::iterator WindowManager::GetNearestTouch(int x, int y){
-
-	TouchList::iterator i = touch.end();
-	double d = 0.0;
-	for (TouchList::iterator itr = touch.begin(); itr != touch.end(); itr++){
-
-		if (i == touch.end()){
-			i = itr;
-			d = sqrt(pow(x-itr->x, 2)+pow(y-itr->y, 2));
-			continue;
-		}
-
-		double distance = sqrt(pow(x-itr->x, 2)+pow(y-itr->y, 2));
-		if (distance < d){
-			i = itr;
-			d = distance;
-		}
-
-	}
-
-	return touch.end();
-}*/
 
 xcb_generic_event_t *WindowManager::WaitForEvent(){
 	return xcb_wait_for_event(connection);
@@ -297,17 +234,13 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 		case XCB_INPUT_TOUCH_END:
 			HandleTouchEnd(*(xcb_input_touch_end_event_t*)e);
 			break;
-		case XCB_INPUT_TOUCH_OWNERSHIP:
-			std::cout << "Touch ownership\n";
-			HandleTouchOwnership(*(xcb_input_touch_ownership_event_t*)e);
-			break;
 		default:
 			std::cout << "Unknown generic event " << ge->event_type << "\n";
 		}
 		break;
 	}
 	default:
-		std::cout << "Unknown event " << (int)e->response_type << "\n";
+		//std::cout << "Unknown event " << (int)e->response_type << "\n";
 		break;
 	}
 }
@@ -364,13 +297,8 @@ void WindowManager::HandleMotion(xcb_motion_notify_event_t &e){
 
 	if (clickWindow){
 		int x = e.root_x-xoff, y = e.root_y-yoff;
-		std::cout << "Move: " << x << "," << y << "\n";
 		Window w(connection, clickWindow);
 		w.Move(e.root_x-xoff, e.root_y-yoff);
-	} else {
-		//std::cout << "Allowing motion\n";
-		//xcb_allow_events(connection, XCB_ALLOW_REPLAY_POINTER, XCB_CURRENT_TIME);
-		//xcb_flush(connection);
 	}
 }
 
@@ -384,6 +312,10 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 	xcb_flush(connection);
 
 	touch.push_back(Touch(e.detail, e.event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
+
+	if (touch.size() > 1)
+		captureTouch = true;
+
 }
 
 void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
@@ -396,14 +328,10 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 		return;
 	}
 
-	// one touch - move
+	// Two touches required for WM uses
 	if (touch.size() == 1){
-		Window w(connection, t->window);
-		double xpos = x-t->xoff;
-		double ypos = y-t->yoff;
-		w.Move(xpos, ypos);
-
-	// two touches - resize
+		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
+		xcb_flush(connection);
 	} else if (touch.size() == 2){
 
 		Touch *ot = NULL;
@@ -433,18 +361,24 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 		w.Expand(dx, dy, xshift, yshift);
 
 	}
+
 }
 
 void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
+
+	if (!captureTouch){
+		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
+		xcb_flush(connection);
+	}
+
 	for (TouchList::iterator itr = touch.begin(); itr != touch.end(); itr++){
 		if (itr->id == e.detail){
 			touch.erase(itr);
 			break;
 		}
 	}
-}
 
-void WindowManager::HandleTouchOwnership(xcb_input_touch_ownership_event_t &e){
-
+	if (touch.size() == 0)
+		captureTouch = false;
 }
 
