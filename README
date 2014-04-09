@@ -1,0 +1,25 @@
+                                     touchwm
+                                     =======
+
+Overview
+========
+
+touchwm is a prototype of a window manager for touchscreen devices. It is
+intended to be a sandbox for experimenting with user interface concepts in
+in this setting.
+
+Requirements
+============
+
+touchwm depends on the XCB headers, and particularly on its input extensions.
+Note that this may not be provided by default, so xcb may need to be built
+from source and configured with --enable-xinput in order to support this.
+Ensure that LD_LIBRARY_PATH and PKG_CONFIG_PATH point to the correct places.
+
+
+Building and Installation
+=========================
+
+./autogen.sh
+./configure
+make
