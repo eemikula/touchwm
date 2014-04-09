@@ -65,7 +65,8 @@ window.o: window.cpp /usr/include/stdc-predef.h window.h \
  /usr/include/c++/4.8.2/cstdlib /usr/include/stdlib.h \
  /usr/include/bits/waitflags.h /usr/include/bits/waitstatus.h \
  /usr/include/alloca.h /usr/include/bits/stdlib-bsearch.h \
- /usr/include/bits/stdlib-float.h
+ /usr/include/bits/stdlib-float.h /usr/include/c++/4.8.2/cstring \
+ /usr/include/string.h
 
 /usr/include/stdc-predef.h:
 
@@ -258,3 +259,7 @@ window.h:
 /usr/include/bits/stdlib-bsearch.h:
 
 /usr/include/bits/stdlib-float.h:
+
+/usr/include/c++/4.8.2/cstring:
+
+/usr/include/string.h:

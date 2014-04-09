@@ -3,6 +3,9 @@
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
 
+/* Define to 1 if you have the `suinput' library (-lsuinput). */
+#undef HAVE_LIBSUINPUT
+
 /* Define to 1 if you have the `xcb' library (-lxcb). */
 #undef HAVE_LIBXCB
 

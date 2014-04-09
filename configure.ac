@@ -16,6 +16,8 @@ AC_PROG_CC
 AC_CHECK_LIB([xcb], [main])
 AC_CHECK_LIB([xcb-xinput], [main])
 
+AC_CHECK_LIB([suinput], [main])
+
 # Checks for header files.
 
 # Checks for typedefs, structures, and compiler characteristics.

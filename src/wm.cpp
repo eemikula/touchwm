@@ -8,15 +8,18 @@ Touchscreen Window Manager prototype
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <err.h>
 
 #include <xcb/xcb.h>
 #include <xcb/xinput.h>
 
+extern "C" {
+#include <suinput.h>
+}
+
 #include "wm.h"
 
 int main(int argc, char* argv[]){
-
-  std::cout << "XCB input version: " << XCB_INPUT_MAJOR_VERSION << "." << XCB_INPUT_MINOR_VERSION << "\n";
 
 	WindowManager wm;
 	ScreenList screens = wm.GetScreens();
@@ -38,10 +41,25 @@ int main(int argc, char* argv[]){
 		wm.HandleEvent(e);
 		free(e);
 	}
+
 	return 0;
 }
 
 WindowManager::WindowManager(){
+
+	memset(&user_dev, 0, sizeof(struct uinput_user_dev));
+	strcpy(user_dev.name, "libsuinput-example-mouse");
+	uinput_fd = suinput_open();
+	if (suinput_enable_event(uinput_fd, EV_REL, REL_X) == -1)
+		std::cerr << "enable x error\n";
+	if (suinput_enable_event(uinput_fd, EV_REL, REL_Y) == -1)
+		std::cerr << "enable y error\n";
+	if (suinput_enable_event(uinput_fd, EV_KEY, BTN_LEFT) == -1)
+		std::cerr << "enable button left error\n";
+	if (suinput_enable_event(uinput_fd, EV_KEY, BTN_RIGHT) == -1)
+		std::cerr << "enable button right error\n";
+	if (suinput_create(uinput_fd, &user_dev) == -1)
+		std::cerr << "Create error\n";
 
 	connection = xcb_connect (NULL, NULL);
 	clickWindow = 0;
@@ -51,6 +69,17 @@ WindowManager::WindowManager(){
 		std::cerr << "Unable to get connection\n";
 		//return 1;
 	}
+
+	xcb_generic_error_t *error;
+	xcb_input_xi_query_version_cookie_t c = xcb_input_xi_query_version_unchecked(connection, 2, 2);
+	xcb_input_xi_query_version_reply_t *r = xcb_input_xi_query_version_reply(connection, c, &error);
+	std::cout << "xcb input version: " << r->major_version << "." << r->minor_version << "\n";
+	if (r)
+		free(r);
+
+}
+
+void WindowManager::ListDevices(){
 
 	xcb_generic_error_t *error;
 	xcb_input_xi_query_device_cookie_t cookie = xcb_input_xi_query_device_unchecked(connection, XCB_INPUT_DEVICE_ALL);
@@ -88,13 +117,10 @@ WindowManager::WindowManager(){
 			   t->num_touches);
 		}*/
 	}
+}
 
-	xcb_input_xi_query_version_cookie_t c = xcb_input_xi_query_version_unchecked(connection, 2, 2);
-	xcb_input_xi_query_version_reply_t *r = xcb_input_xi_query_version_reply(connection, c, &error);
-	std::cout << "xcb input version: " << r->major_version << "." << r->minor_version << "\n";
-	if (r)
-		free(r);
-
+WindowManager::~WindowManager(){
+	suinput_destroy(uinput_fd);
 }
 
 ScreenList WindowManager::GetScreens(){
@@ -133,7 +159,7 @@ bool WindowManager::Redirect(Screen &screen){
 }
 
 void WindowManager::AddWindow(Window &window){
-	std::cout << "Adding " << window.GetTitle() << "\n";
+	//std::cout << "Adding " << window.GetTitle() << "\n";
 
 	xcb_void_cookie_t cookie;
 	xcb_generic_error_t *error;
@@ -202,7 +228,13 @@ xcb_generic_event_t *WindowManager::WaitForEvent(){
 }
 
 void WindowManager::HandleEvent(xcb_generic_event_t *e){
-	switch (e->response_type){
+	uint8_t event_type = e->response_type&0x7f;
+	switch (event_type){
+	case 0:{
+		xcb_generic_error_t *error = (xcb_generic_error_t*)e;
+		std::cerr << "Received x11 error: " << (int)error->error_code << ", major: " << (int)error->major_code << ", minor: " << (int)error->minor_code << "\n";
+		break;
+	}
 	case XCB_MAP_REQUEST:{
 		HandleMapRequest(*(xcb_map_request_event_t*)e);
 		break;
@@ -213,7 +245,7 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 		break;
 	}
 	case XCB_BUTTON_RELEASE:{
-		std::cout << "release\n";
+		std::cout << "release " << e->sequence << "\n";
 		HandleButtonRelease(*(xcb_button_release_event_t*)e);
 		break;
 	}
@@ -240,7 +272,7 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 		break;
 	}
 	default:
-		//std::cout << "Unknown event " << (int)e->response_type << "\n";
+		std::cout << "Unknown event " << (int)event_type << "\n";
 		break;
 	}
 }
@@ -259,6 +291,7 @@ void WindowManager::SendEvent(xcb_window_t window, xcb_generic_event_t &event, x
 void WindowManager::HandleButtonPress(xcb_button_press_event_t &e){
 
 	std::cout << "Button press on button " << (int)e.detail << "\n";
+	std::cout << "Root: " << (int)e.root << ", event: " << (int)e.event << ", child: " << (int)e.child << "\n";
 
 	// always raise window on press
 	xcb_void_cookie_t cookie;
@@ -316,6 +349,12 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 	if (touch.size() > 1)
 		captureTouch = true;
 
+	if (touch.size() == 3){
+		std::cout << "maximizing\n";
+		Window w(connection, e.event);
+		w.Maximize(e.root);
+	}
+
 }
 
 void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
@@ -332,6 +371,9 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 	if (touch.size() == 1){
 		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
 		xcb_flush(connection);
+		t->x = x;
+		t->y = y;
+		t->moved = true;
 	} else if (touch.size() == 2){
 
 		Touch *ot = NULL;
@@ -353,6 +395,7 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 		// update the touch
 		t->x = x;
 		t->y = y;
+		t->moved = true;
 
 		dx = abs(touch[0].x-touch[1].x)-dx;
 		dy = abs(touch[0].y-touch[1].y)-dy;
@@ -360,6 +403,10 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 		Window w(connection, t->window);
 		w.Expand(dx, dy, xshift, yshift);
 
+	} else {
+		t->x = x;
+		t->y = y;
+		t->moved = true;
 	}
 
 }
@@ -371,8 +418,10 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 		xcb_flush(connection);
 	}
 
+	bool moved = false;
 	for (TouchList::iterator itr = touch.begin(); itr != touch.end(); itr++){
 		if (itr->id == e.detail){
+			moved = itr->moved;
 			touch.erase(itr);
 			break;
 		}
@@ -380,5 +429,68 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 
 	if (touch.size() == 0)
 		captureTouch = false;
+	else if (touch.size() == 1 && moved == false){
+
+		int r;
+		r = suinput_emit(uinput_fd, EV_KEY, BTN_RIGHT, 1);
+		if (r != -1)
+			r = suinput_syn(uinput_fd);
+		if (r != -1)
+			r = suinput_emit(uinput_fd, EV_KEY, BTN_RIGHT, 0);
+		if (r != -1)
+			r = suinput_syn(uinput_fd);
+		if (r == -1)
+			std::cerr << "Error occurred simulating mouse click\n";
+
+		/*
+		const int button = 3;
+		xcb_flush(connection);
+		std::cout << "Sending events (size " << sizeof(xcb_button_release_event_t) << ")\n";
+		xcb_button_release_event_t event;
+		event.response_type = XCB_BUTTON_PRESS;
+		event.detail = button;
+		event.sequence = e.sequence+1;
+		event.time = XCB_CURRENT_TIME;
+		event.root = e.root;
+		event.event = touch[0].window;
+		event.child = 0;
+		event.root_x = touch[0].x;
+		event.root_y = touch[0].y;
+		event.event_x = touch[0].xoff;
+		event.event_y = touch[0].yoff;
+		event.state = 0;
+		event.same_screen = true;
+		std::cout << "Root: " << (int)event.root << ", event: " << (int)event.event << ", child: " << (int)event.child << "\n";
+		xcb_void_cookie_t c = xcb_send_event_checked(connection, true, touch[0].window, XCB_EVENT_MASK_BUTTON_PRESS, (const char*)&event);
+		xcb_generic_error_t *error;
+		error = xcb_request_check(connection, c);
+		if (error){
+			std::cerr << "Error sending event!\n";
+		}
+		xcb_flush(connection);
+
+		event.response_type = XCB_BUTTON_RELEASE;
+		event.detail = button;
+		event.sequence = e.sequence+2;
+		event.time = XCB_CURRENT_TIME;
+		event.root = e.root;
+		event.event = touch[0].window;
+		event.child = 0;
+		event.root_x = touch[0].x;
+		event.root_y = touch[0].y;
+		event.event_x = touch[0].xoff;
+		event.event_y = touch[0].yoff;
+		event.state = 0;
+		event.same_screen = true;
+		std::cout << "Root: " << (int)event.root << ", event: " << (int)event.event << ", child: " << (int)event.child << "\n";
+		c = xcb_send_event_checked(connection, true, touch[0].window, XCB_EVENT_MASK_BUTTON_RELEASE, (const char*)&event);
+		error = xcb_request_check(connection, c);
+		if (error){
+			std::cerr << "Error sending event!\n";
+		}
+		xcb_flush(connection);*/
+
+	}
+
 }
 

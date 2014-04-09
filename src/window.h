@@ -14,6 +14,7 @@ public:
 	std::string GetTitle();
 	void Move(int x, int y);
 	void Expand(int width, int height, bool xshift, bool yshift);
+	void Maximize(xcb_window_t root);
 
 	operator xcb_window_t (){return window;}
 	xcb_window_t window;

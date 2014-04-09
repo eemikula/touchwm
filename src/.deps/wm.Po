@@ -85,12 +85,24 @@ wm.o: wm.cpp /usr/include/stdc-predef.h /usr/include/c++/4.8.2/iostream \
  /usr/include/libio.h /usr/include/_G_config.h \
  /usr/include/bits/stdio_lim.h /usr/include/bits/sys_errlist.h \
  /usr/include/bits/stdio.h /usr/include/c++/4.8.2/cstring \
- /usr/include/string.h /usr/local/include/xcb/xcb.h \
+ /usr/include/string.h /usr/include/err.h /usr/local/include/xcb/xcb.h \
  /usr/lib/gcc/x86_64-redhat-linux/4.8.2/include/stdint.h \
  /usr/include/stdint.h /usr/include/sys/uio.h /usr/include/bits/uio.h \
  /usr/local/include/xcb/xproto.h /usr/local/include/xcb/xcb.h \
  /usr/local/include/xcb/xinput.h /usr/local/include/xcb/render.h \
- /usr/local/include/xcb/shape.h /usr/local/include/xcb/xfixes.h wm.h \
+ /usr/local/include/xcb/shape.h /usr/local/include/xcb/xfixes.h \
+ /usr/local/include/suinput.h /usr/include/linux/uinput.h \
+ /usr/include/linux/types.h /usr/include/asm/types.h \
+ /usr/include/asm-generic/types.h /usr/include/asm-generic/int-ll64.h \
+ /usr/include/asm/bitsperlong.h /usr/include/asm-generic/bitsperlong.h \
+ /usr/include/linux/posix_types.h /usr/include/linux/stddef.h \
+ /usr/include/asm/posix_types.h /usr/include/asm/posix_types_64.h \
+ /usr/include/asm-generic/posix_types.h /usr/include/linux/input.h \
+ /usr/include/sys/time.h /usr/include/sys/ioctl.h \
+ /usr/include/bits/ioctls.h /usr/include/asm/ioctls.h \
+ /usr/include/asm-generic/ioctls.h /usr/include/linux/ioctl.h \
+ /usr/include/asm/ioctl.h /usr/include/asm-generic/ioctl.h \
+ /usr/include/bits/ioctl-types.h /usr/include/sys/ttydefaults.h wm.h \
  /usr/include/c++/4.8.2/vector \
  /usr/include/c++/4.8.2/bits/stl_construct.h \
  /usr/include/c++/4.8.2/ext/alloc_traits.h \
@@ -351,6 +363,8 @@ wm.o: wm.cpp /usr/include/stdc-predef.h /usr/include/c++/4.8.2/iostream \
 
 /usr/include/string.h:
 
+/usr/include/err.h:
+
 /usr/local/include/xcb/xcb.h:
 
 /usr/lib/gcc/x86_64-redhat-linux/4.8.2/include/stdint.h:
@@ -372,6 +386,54 @@ wm.o: wm.cpp /usr/include/stdc-predef.h /usr/include/c++/4.8.2/iostream \
 /usr/local/include/xcb/shape.h:
 
 /usr/local/include/xcb/xfixes.h:
+
+/usr/local/include/suinput.h:
+
+/usr/include/linux/uinput.h:
+
+/usr/include/linux/types.h:
+
+/usr/include/asm/types.h:
+
+/usr/include/asm-generic/types.h:
+
+/usr/include/asm-generic/int-ll64.h:
+
+/usr/include/asm/bitsperlong.h:
+
+/usr/include/asm-generic/bitsperlong.h:
+
+/usr/include/linux/posix_types.h:
+
+/usr/include/linux/stddef.h:
+
+/usr/include/asm/posix_types.h:
+
+/usr/include/asm/posix_types_64.h:
+
+/usr/include/asm-generic/posix_types.h:
+
+/usr/include/linux/input.h:
+
+/usr/include/sys/time.h:
+
+/usr/include/sys/ioctl.h:
+
+/usr/include/bits/ioctls.h:
+
+/usr/include/asm/ioctls.h:
+
+/usr/include/asm-generic/ioctls.h:
+
+/usr/include/linux/ioctl.h:
+
+/usr/include/asm/ioctl.h:
+
+/usr/include/asm-generic/ioctl.h:
+
+/usr/include/bits/ioctl-types.h:
+
+/usr/include/sys/ttydefaults.h:
 
 wm.h:
 

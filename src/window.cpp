@@ -1,6 +1,7 @@
 #include "window.h"
 
 #include <cstdlib>
+#include <cstring>
 
 WindowList Window::GetChildren(){
 	WindowList l;
@@ -62,4 +63,39 @@ void Window::Expand(int width, int height, bool xshift, bool yshift){
 
 	if (r)
 		free(r);
+}
+
+void Window::Maximize(xcb_window_t root){
+
+	Expand(1024, 768, false, false);
+
+	/*const char wm_state[] = "_NET_WM_STATE";
+	const char max_horz[] = "_NET_WM_STATE_MAXIMIZED_HORZ";
+	const char max_vert[] = "_NET_WM_STATE_MAXIMIZED_VERT";
+	xcb_intern_atom_cookie_t cookie[3];
+
+	cookie[0] = xcb_intern_atom(connection, false, strlen(wm_state), wm_state);
+	cookie[1] = xcb_intern_atom(connection, false, strlen(max_horz), max_horz);
+	cookie[2] = xcb_intern_atom(connection, false, strlen(max_vert), max_vert);
+
+	xcb_intern_atom_reply_t *r;
+	r = xcb_intern_atom_reply(connection, cookie[0], NULL);
+	xcb_atom_t atom_wm_state = r->atom;
+	r = xcb_intern_atom_reply(connection, cookie[1], NULL);
+	xcb_atom_t atom_max_horz = r->atom;
+	r = xcb_intern_atom_reply(connection, cookie[2], NULL);
+	xcb_atom_t atom_max_vert = r->atom;
+
+	xcb_client_message_event_t event;
+	event.response_type = XCB_CLIENT_MESSAGE;
+	event.format = 32;
+	event.sequence = 0;
+	event.window = window;
+	//event.type = _NET_WM_STATE;
+	event.data.data32[0] = 1L;
+	event.data.data32[1] = atom_max_horz;
+	event.data.data32[2] = atom_max_vert;
+	xcb_send_event(connection, false, root, XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY, (const char*)&event);
+	xcb_flush(connection);*/
+
 }

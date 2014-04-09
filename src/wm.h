@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <xcb/xcb.h>
+#include <linux/uinput.h>
 
 #include "screen.h"
 #include "window.h"
@@ -16,15 +17,20 @@ typedef std::list<Screen> ScreenList;
 class WindowManager {
 public:
 	WindowManager();
+	~WindowManager();
 
 	ScreenList GetScreens();
 	bool Redirect(Screen &screen);
 	void AddWindow(Window &window);
 	xcb_generic_event_t *WaitForEvent();
+	void ListDevices();
 
 	void HandleEvent(xcb_generic_event_t *e);
 
 private:
+
+	int uinput_fd;
+	uinput_user_dev user_dev;
 
 	struct Touch {
 		Touch(unsigned int id, xcb_window_t w, int x, int y, int root_x, int root_y){
@@ -34,12 +40,14 @@ private:
 			this->y = root_y;
 			this->xoff = x;
 			this->yoff = y;
+			this->moved = false;
 		}
 
 		xcb_window_t window;
 		int x, y;
 		int xoff, yoff;
 		unsigned int id;
+		bool moved;
 	};
 
 	typedef std::vector<Touch> TouchList;
