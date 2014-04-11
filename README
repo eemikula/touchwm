@@ -16,6 +16,18 @@ Note that this may not be provided by default, so xcb may need to be built
 from source and configured with --enable-xinput in order to support this.
 Ensure that LD_LIBRARY_PATH and PKG_CONFIG_PATH point to the correct places.
 
+Additionally, in order to translate some touch events into mouse events,
+touchwm depends on the libsuinput library. Using this library comes with some
+setup requirements. Specifically, udev rules need to be configured, and any
+users need to be added to the appropriate group. Finally, ensure the uinput
+kernel module is loaded correctly.
+
+The easiest way to do this is:
+
+	sudo cp 40-uinput.rules /etc/udev/rules.d
+	sudo groupadd uinput
+	sudo usermod -a -G uinput `whoami`
+	sudo modprobe uinput 
 
 Building and Installation
 =========================
