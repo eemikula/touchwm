@@ -15,6 +15,7 @@ AC_PROG_CC
 # FIXME: Replace `main' with a function in `-lxcb':
 AC_CHECK_LIB([xcb], [main])
 AC_CHECK_LIB([xcb-xinput], [main])
+AC_CHECK_LIB([xcb-util], [main])
 
 AC_CHECK_LIB([suinput], [main])
 

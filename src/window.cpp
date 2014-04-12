@@ -2,6 +2,26 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
+
+Window::Window(xcb_connection_t *connection, xcb_window_t win){
+	this->connection = connection;
+	this->window = win;
+
+	xcb_generic_error_t *error = NULL;
+	xcb_get_geometry_cookie_t c = xcb_get_geometry(connection, window);
+	xcb_get_geometry_reply_t *r = xcb_get_geometry_reply(connection, c, &error);
+	if (error || !r){
+		return;
+	}
+
+	this->x = r->x;
+	this->y = r->y;
+	this->width = r->width;
+	this->height = r->height;
+
+	free(r);
+}
 
 WindowList Window::GetChildren(){
 	WindowList l;
@@ -38,38 +58,42 @@ std::string Window::GetTitle(){
 
 void Window::Move(int x, int y){
 	uint32_t values[2];
-	values[0] = x;
-	values[1] = y;
-	xcb_void_cookie_t cookie = xcb_configure_window_checked(connection, window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y, values);
-	xcb_request_check(connection, cookie);
+	this->x = values[0] = x;
+	this->y = values[1] = y;
+	xcb_configure_window(connection, window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y, values);
 }
 
 void Window::Expand(int width, int height, bool xshift, bool yshift){
 
-	xcb_generic_error_t *error = NULL;
+	/*xcb_generic_error_t *error = NULL;
 	xcb_get_geometry_cookie_t c = xcb_get_geometry(connection, window);
 	xcb_get_geometry_reply_t *r = xcb_get_geometry_reply(connection, c, &error);
 	if (error){
 		return;
 	}
 
-	uint32_t values[4];
-	values[0] = xshift ? r->x-width : r->x;
-	values[1] = yshift ? r->y-height : r->y;
-	values[2] = r->width+width;
-	values[3] = r->height+height;
-	xcb_void_cookie_t cookie = xcb_configure_window_checked(connection, window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, values);
-	xcb_request_check(connection, cookie);
+	if (this->x != r->x || this->y != r->y || this->width != r->width || this->height != r->height){
+		std::cout << "this: (" << this->x << "," << this->y << "), (" << this->width << "," << this->height << "\n";
+		std::cout << "repl: (" << r->x << "," << r->y << "), (" << r->width << "," << r->height << "\n";
+	}*/
 
-	if (r)
-		free(r);
+	uint32_t values[4];
+	this->x = values[0] = xshift ? this->x-width : this->x;
+	this->y = values[1] = yshift ? this->y-height : this->y;
+	this->width = values[2] = this->width+width;
+	this->height = values[3] = this->height+height;
+	xcb_configure_window(connection, window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, values);
+	xcb_flush(connection);
+
+	//if (r)
+	//	free(r);
 }
 
 void Window::Maximize(xcb_window_t root){
 
 	Expand(1024, 768, false, false);
 
-	/*const char wm_state[] = "_NET_WM_STATE";
+	const char wm_state[] = "_NET_WM_STATE";
 	const char max_horz[] = "_NET_WM_STATE_MAXIMIZED_HORZ";
 	const char max_vert[] = "_NET_WM_STATE_MAXIMIZED_VERT";
 	xcb_intern_atom_cookie_t cookie[3];
@@ -91,11 +115,26 @@ void Window::Maximize(xcb_window_t root){
 	event.format = 32;
 	event.sequence = 0;
 	event.window = window;
-	//event.type = _NET_WM_STATE;
+	event.type = atom_wm_state;
 	event.data.data32[0] = 1L;
 	event.data.data32[1] = atom_max_horz;
 	event.data.data32[2] = atom_max_vert;
 	xcb_send_event(connection, false, root, XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY, (const char*)&event);
-	xcb_flush(connection);*/
 
+	Move(0,0);
+
+}
+
+void Window::Configure(uint16_t mask, const uint32_t *values){
+	int i = 0;
+	if (mask & XCB_CONFIG_WINDOW_X)
+		this->x = values[i++];
+	if (mask & XCB_CONFIG_WINDOW_Y)
+		this->y = values[i++];
+	if (mask & XCB_CONFIG_WINDOW_WIDTH)
+		this->width = values[i++];
+	if (mask & XCB_CONFIG_WINDOW_HEIGHT)
+		this->height = values[i++];
+	xcb_configure_window(connection, window, mask, values);
+	xcb_flush(connection);
 }

@@ -51,18 +51,22 @@ private:
 	};
 
 	typedef std::vector<Touch> TouchList;
+	typedef std::list<Window> WindowList;
 
 	xcb_connection_t *connection;
 	TouchList touch;
 	bool captureTouch;
-	xcb_window_t clickWindow;
+	WindowList windows;
+	Window *clickWindow;
 	int xoff, yoff;
 
 	void OutputError(xcb_generic_error_t &e);
 
 	Touch *GetTouch(unsigned int id);
+	Window *GetWindow(xcb_window_t w);
 
 	void HandleMapRequest(xcb_map_request_event_t &e);
+	void HandleConfigureRequest(xcb_configure_request_event_t &e);
 	void HandleButtonPress(xcb_button_press_event_t &e);
 	void HandleButtonRelease(xcb_button_release_event_t &e);
 	void HandleMotion(xcb_motion_notify_event_t &e);
