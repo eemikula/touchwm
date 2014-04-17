@@ -26,6 +26,11 @@ extern "C" {
 
 #include "wm.h"
 
+#define OPACITY_MAX 1.0
+#define OPACITY_MIN 0.1
+#define OPACITY_HALF 0.5
+#define OPACITY_TRANSLUCENT 0.75
+
 int main(int argc, char* argv[]){
 
 	WindowManager wm;
@@ -70,6 +75,7 @@ WindowManager::WindowManager(){
 
 	connection = xcb_connect (NULL, NULL);
 	clickWindow = 0;
+	touchWindow = 0;
 	captureTouch = false;
 
 	if (connection == NULL){
@@ -109,20 +115,6 @@ void WindowManager::ListDevices(){
 			else
 				continue;*/
 		}
-		/*XIDeviceInfo *dev = &info[i];
-		printf("Device name %d\n", dev->name);
-		for (j = 0; j < dev->num_classes; j++)
-		{
-		XIAnyClassInfo *class = dev->classes[j];
-		XITouchClassInfo *t = (XITouchClassInfo*)class;
-
-		if (class->type != XITouchClass)
-			continue;
-
-		printf("%s touch device, supporting %d touches.\n",
-			   (t->mode == XIDirectTouch) ?  "direct" : "dependent",
-			   t->num_touches);
-		}*/
 	}
 }
 
@@ -161,6 +153,7 @@ bool WindowManager::Redirect(Screen &screen){
 	WindowList topLevel = rootWindow.GetChildren();
 	for (WindowList::iterator itr = topLevel.begin(); itr != topLevel.end(); itr++)
 		AddWindow(*itr);
+	AddWindow(rootWindow);
 
 	return true;
 }
@@ -237,6 +230,16 @@ Window *WindowManager::GetWindow(xcb_window_t w){
 	return win;
 }
 
+void WindowManager::SelectWindow(Window &w){
+}
+
+void WindowManager::DeselectWindow(){
+	captureTouch = false;
+	if (touchWindow)
+		touchWindow->SetOpacity(OPACITY_MAX);
+	touchWindow = NULL;
+}
+
 xcb_generic_event_t *WindowManager::WaitForEvent(){
 	return xcb_wait_for_event(connection);
 }
@@ -247,7 +250,7 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 	case 0:{
 		xcb_generic_error_t *error = (xcb_generic_error_t*)e;
 #ifdef HAVE_LIBXCB_UTIL
-		std::cerr << "Received error: " << xcb_event_get_error_label(error->error_code) << "\n";
+		std::cerr << "Received error: " << xcb_event_get_error_label(error->error_code) << "major: " << (int)error->major_code << " minor: " << (int)error->minor_code << "\n";
 #else
 		std::cerr << "Received x11 error: " << (int)error->error_code << ", major: " << (int)error->major_code << ", minor: " << (int)error->minor_code << "\n";
 #endif
@@ -262,17 +265,14 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 		break;
 	}
 	case XCB_BUTTON_PRESS:{
-		std::cout << "press\n";
 		HandleButtonPress(*(xcb_button_press_event_t*)e);
 		break;
 	}
 	case XCB_BUTTON_RELEASE:{
-		std::cout << "release " << e->sequence << "\n";
 		HandleButtonRelease(*(xcb_button_release_event_t*)e);
 		break;
 	}
 	case XCB_MOTION_NOTIFY:{
-		std::cout << "motion\n";
 		HandleMotion(*(xcb_motion_notify_event_t*)e);
 		break;
 	}
@@ -316,6 +316,7 @@ void WindowManager::HandleMapRequest(xcb_map_request_event_t &e){
 	cookie = xcb_map_window_checked(connection, e.window);
 	error = xcb_request_check(connection, cookie);
 	AddWindow(window);
+	xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, e.window, XCB_CURRENT_TIME);
 }
 
 void WindowManager::HandleConfigureRequest(xcb_configure_request_event_t &e){
@@ -349,8 +350,6 @@ void WindowManager::SendEvent(xcb_window_t window, xcb_generic_event_t &event, x
 
 void WindowManager::HandleButtonPress(xcb_button_press_event_t &e){
 
-	std::cout << "Button press on button " << (int)e.detail << "\n";
-
 	// always raise window on press
 	xcb_void_cookie_t cookie;
 	const static uint32_t values[] = { XCB_STACK_MODE_ABOVE };
@@ -372,8 +371,6 @@ void WindowManager::HandleButtonPress(xcb_button_press_event_t &e){
 
 void WindowManager::HandleButtonRelease(xcb_button_release_event_t &e){
 
-	std::cout << "Button release on button " << (int)e.detail << "\n";
-
 	clickWindow = 0;
 	xcb_flush(connection);
 	xcb_allow_events(connection, XCB_ALLOW_SYNC_POINTER, XCB_CURRENT_TIME);
@@ -394,27 +391,60 @@ void WindowManager::HandleMotion(xcb_motion_notify_event_t &e){
 
 void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 
+	xcb_window_t event = e.event;
+	xcb_window_t root = e.root;
+	xcb_window_t child = e.child;
+	if (event == root){
+		if (child == root)
+			DeselectWindow();
+		captureTouch = false;
+		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
+		xcb_flush(connection);
+		return;
+	}
+
 	// always raise window on press
 	xcb_void_cookie_t cookie;
 	const static uint32_t values[] = { XCB_STACK_MODE_ABOVE };
-	xcb_configure_window(connection, e.event, XCB_CONFIG_WINDOW_STACK_MODE, values);
-	xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, e.event, XCB_CURRENT_TIME);
+	xcb_configure_window(connection, event, XCB_CONFIG_WINDOW_STACK_MODE, values);
+	xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, event, XCB_CURRENT_TIME);
 	xcb_flush(connection);
 
-	touch.push_back(Touch(e.detail, e.event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
+	Window *w = GetWindow(event);
+	touch.push_back(Touch(e.detail, event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
 
-	if (touch.size() > 1)
+	if (touch.size() == 1 && w != touchWindow){
+		DeselectWindow();
+	}
+	else if (touch.size() == 1){
+		captureTouch = false;
+	}
+	else if (touch.size() > 1 && captureTouch == false){
 		captureTouch = true;
-
-	Window *w = GetWindow(e.event);
-	if (touch.size() == 3 && w){
-		std::cout << "maximizing\n";
-		w->Maximize(e.root);
+		if (w){
+			w->SetOpacity(OPACITY_TRANSLUCENT);
+			touchWindow = w;
+		}
+	}
+	else if (w && touch.size() == 3 && w){
+		w->Maximize(root);
 	}
 
 }
 
 void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
+
+	xcb_window_t event = e.event;
+	xcb_window_t root = e.root;
+	xcb_window_t child = e.child;
+	if (event == root){
+		if (child == root)
+			DeselectWindow();
+		captureTouch = false;
+		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
+		xcb_flush(connection);
+		return;
+	}
 
 	double x = e.root_x / 65536.0;
 	double y = e.root_y / 65536.0;
@@ -425,14 +455,20 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 	}
 
 	// Two touches required for WM uses
-	if (touch.size() == 1){
+	if (touch.size() == 1 && touchWindow == NULL){
 		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
 		xcb_flush(connection);
 		t->x = x;
 		t->y = y;
 		t->moved = true;
+	} else if (touch.size() == 1 && touchWindow != NULL){
+		t->x = x;
+		t->y = y;
+		touchWindow->Move(t->x-t->xoff, t->y-t->yoff);
+		xcb_flush(connection);
+		captureTouch = true;
 	} else if (touch.size() == 2){
-
+		captureTouch = true;
 		Touch *ot = NULL;
 		if (&touch[0] == t)
 			ot = &touch[1];
@@ -471,6 +507,18 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 
 void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 
+	xcb_window_t event = e.event;
+	xcb_window_t root = e.root;
+	xcb_window_t child = e.child;
+	if (event == root){
+		if (child == root)
+			DeselectWindow();
+		captureTouch = false;
+		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
+		xcb_flush(connection);
+		return;
+	}
+
 	if (!captureTouch){
 		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
 		xcb_flush(connection);
@@ -487,9 +535,11 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 		}
 	}
 
-	if (touch.size() == 0)
-		captureTouch = false;
-	else if (touch.size() == 1 && moved == false){
+	Window *w = GetWindow(event);
+
+	if (touch.size() == 0 && moved == false && captureTouch == false){
+		DeselectWindow();
+	} else if (touch.size() == 1 && moved == false && w == touchWindow && captureTouch == false){
 
 		int r;
 		r = suinput_emit(uinput_fd, EV_KEY, BTN_RIGHT, 1);
@@ -499,8 +549,13 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 			r = suinput_syn(uinput_fd);
 		if (r == -1)
 			std::cerr << "Error occurred simulating mouse click\n";
+		DeselectWindow();
 
 	}
+
+	// always release captureTouch if there are no other touches
+	if (touch.size() == 0)
+		captureTouch = false;
 
 }
 

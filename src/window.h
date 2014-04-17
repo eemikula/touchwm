@@ -35,6 +35,7 @@ public:
 	void Expand(int width, int height, bool xshift, bool yshift);
 	void Maximize(xcb_window_t root);
 	void Configure(uint16_t mask, const uint32_t *values);
+	void SetOpacity(double opacity);
 
 	operator xcb_window_t (){return window;}
 	xcb_window_t window;

@@ -64,19 +64,6 @@ void Window::Move(int x, int y){
 }
 
 void Window::Expand(int width, int height, bool xshift, bool yshift){
-
-	/*xcb_generic_error_t *error = NULL;
-	xcb_get_geometry_cookie_t c = xcb_get_geometry(connection, window);
-	xcb_get_geometry_reply_t *r = xcb_get_geometry_reply(connection, c, &error);
-	if (error){
-		return;
-	}
-
-	if (this->x != r->x || this->y != r->y || this->width != r->width || this->height != r->height){
-		std::cout << "this: (" << this->x << "," << this->y << "), (" << this->width << "," << this->height << "\n";
-		std::cout << "repl: (" << r->x << "," << r->y << "), (" << r->width << "," << r->height << "\n";
-	}*/
-
 	uint32_t values[4];
 	this->x = values[0] = xshift ? this->x-width : this->x;
 	this->y = values[1] = yshift ? this->y-height : this->y;
@@ -84,14 +71,11 @@ void Window::Expand(int width, int height, bool xshift, bool yshift){
 	this->height = values[3] = this->height+height;
 	xcb_configure_window(connection, window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, values);
 	xcb_flush(connection);
-
-	//if (r)
-	//	free(r);
 }
 
 void Window::Maximize(xcb_window_t root){
 
-	Expand(1024, 768, false, false);
+	//Expand(1024, 768, false, false);
 
 	const char wm_state[] = "_NET_WM_STATE";
 	const char max_horz[] = "_NET_WM_STATE_MAXIMIZED_HORZ";
@@ -137,4 +121,19 @@ void Window::Configure(uint16_t mask, const uint32_t *values){
 		this->height = values[i++];
 	xcb_configure_window(connection, window, mask, values);
 	xcb_flush(connection);
+}
+
+void Window::SetOpacity(double op){
+	const char wm_opacity[] = "_NET_WM_WINDOW_OPACITY";
+	xcb_intern_atom_cookie_t cookie;
+
+	cookie = xcb_intern_atom(connection, false, strlen(wm_opacity), wm_opacity);
+	xcb_intern_atom_reply_t *r;
+	r = xcb_intern_atom_reply(connection, cookie, NULL);
+	xcb_atom_t atom_opacity = r->atom;
+
+	uint32_t opacity = op*0xffffffff;
+	xcb_change_property(connection, XCB_PROP_MODE_REPLACE, window, atom_opacity, XCB_ATOM_CARDINAL, 32, sizeof(opacity), &opacity);
+	xcb_flush(connection);
+
 }

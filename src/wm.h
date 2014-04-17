@@ -58,12 +58,16 @@ private:
 	bool captureTouch;
 	WindowList windows;
 	Window *clickWindow;
+	Window *touchWindow;
 	int xoff, yoff;
 
 	void OutputError(xcb_generic_error_t &e);
 
 	Touch *GetTouch(unsigned int id);
 	Window *GetWindow(xcb_window_t w);
+
+	void SelectWindow(Window &w);
+	void DeselectWindow();
 
 	void HandleMapRequest(xcb_map_request_event_t &e);
 	void HandleConfigureRequest(xcb_configure_request_event_t &e);
