@@ -6,6 +6,8 @@
 
 #include <xcb/xcb.h>
 #include <linux/uinput.h>
+#include <xcb/xcb_ewmh.h>
+#include <xcb/xcb_icccm.h>
 
 #include "screen.h"
 #include "window.h"
@@ -68,8 +70,11 @@ private:
 
 	void SelectWindow(Window &w);
 	void DeselectWindow();
+	void MaximizeWindow(xcb_window_t window, xcb_window_t root);
 
+	// Event handlers
 	void HandleMapRequest(xcb_map_request_event_t &e);
+	void HandleClientMessage(xcb_client_message_event_t &e);
 	void HandleConfigureRequest(xcb_configure_request_event_t &e);
 	void HandleButtonPress(xcb_button_press_event_t &e);
 	void HandleButtonRelease(xcb_button_release_event_t &e);
@@ -79,6 +84,13 @@ private:
 	void HandleTouchEnd(xcb_input_touch_end_event_t &e);
 
 	void SendEvent(xcb_window_t window, xcb_generic_event_t &e, xcb_event_mask_t mask);
+
+	// stored atoms
+	xcb_atom_t 	atom_NET_WM_STATE,
+			atom_NET_WM_STATE_MAXIMIZED_HORZ,
+			atom_NET_WM_STATE_MAXIMIZED_VERT,
+			atom_NET_WM_WINDOW_OPACITY;
+
 };
 
 struct EventThreadArg {

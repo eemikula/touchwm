@@ -25,11 +25,12 @@ extern "C" {
 }
 
 #include "wm.h"
+#include "windowsystem.h"
 
-#define OPACITY_MAX 1.0
-#define OPACITY_MIN 0.1
-#define OPACITY_HALF 0.5
-#define OPACITY_TRANSLUCENT 0.75
+const double OPACITY_MAX = 1.0;
+const double OPACITY_MIN = 0.1;
+const double OPACITY_HALF = 0.5;
+const double OPACITY_TRANSLUCENT = 0.75;
 
 int main(int argc, char* argv[]){
 
@@ -59,6 +60,12 @@ int main(int argc, char* argv[]){
 
 WindowManager::WindowManager(){
 
+	// Because of the nature of X11, mouse events produced by a client are
+	// not reliably handled by applications. In order to work around this,
+	// libsuinput is used as a wrapper around systemd / udev to simulate
+	// mouse input. Because this behavior is only needed for translating
+	// touch input into other events like a right click, failure to
+	// initialize this component is not considered to be a fatal error.
 	memset(&user_dev, 0, sizeof(struct uinput_user_dev));
 	strcpy(user_dev.name, "libsuinput-example-mouse");
 	uinput_fd = suinput_open();
@@ -73,19 +80,24 @@ WindowManager::WindowManager(){
 	if (suinput_create(uinput_fd, &user_dev) == -1)
 		std::cerr << "Create error\n";
 
-	connection = xcb_connect (NULL, NULL);
+	// The window manager shares its connection to the X server with many
+	// other components. To minimize the extent to which this information
+	// must be passed around, it is managed with the singleton WindowSystem
+	// class, which provides shared access to a single instance of the
+	// connection to the X server.
+	connection = WindowSystem::Get();
 	clickWindow = 0;
 	touchWindow = 0;
 	captureTouch = false;
 
 	if (connection == NULL){
 		std::cerr << "Unable to get connection\n";
-		//return 1;
+		//FIXME: Throw an error here
+		return 1;
 	}
 
-	xcb_generic_error_t *error;
 	xcb_input_xi_query_version_cookie_t c = xcb_input_xi_query_version_unchecked(connection, 2, 2);
-	xcb_input_xi_query_version_reply_t *r = xcb_input_xi_query_version_reply(connection, c, &error);
+	xcb_input_xi_query_version_reply_t *r = xcb_input_xi_query_version_reply(connection, c, NULL);
 	std::cout << "xcb input version: " << r->major_version << "." << r->minor_version << "\n";
 	if (r)
 		free(r);
@@ -132,10 +144,18 @@ ScreenList WindowManager::GetScreens(){
 	int roots = xcb_setup_roots_length(setup);
 	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
 	for (; iter.rem; xcb_screen_next(&iter))
-		l.push_back(Screen(connection, iter.data));
+		l.push_back(Screen(iter.data));
 	return l;
 }
 
+/*
+ * This method initiates a substructure redirect on the specified screen. This will
+ * cause relevant events to be reported to the window manager. This will fail if
+ * anything else has already obtained the substructure redirect.
+ *
+ * Parameters:
+ * 	screen: The screen on which the redirect is applied
+ */
 bool WindowManager::Redirect(Screen &screen){
 
 	const static uint32_t values[] = {	XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT };
@@ -150,17 +170,27 @@ bool WindowManager::Redirect(Screen &screen){
 		std::cout << "Redirect successful\n";
 	}
 
+	// Manage any existing toplevel windows
 	WindowList topLevel = rootWindow.GetChildren();
 	for (WindowList::iterator itr = topLevel.begin(); itr != topLevel.end(); itr++)
 		AddWindow(*itr);
+
+	// Also manage the root window itself
 	AddWindow(rootWindow);
 
 	return true;
 }
 
+/*
+ * This method adds a window to the list of windows being managed. In addition,
+ * it applies the necessary grabs to track mouse and touch input to the window
+ * and respond to it if necessary.
+ *
+ * Parameters:
+ * 	window: The window to be managed
+ */
 void WindowManager::AddWindow(Window &window){
 	windows.push_back(window);
-	//std::cout << "Adding " << window.GetTitle() << "\n";
 
 	xcb_void_cookie_t cookie;
 	xcb_generic_error_t *error;
@@ -210,9 +240,23 @@ void WindowManager::AddWindow(Window &window){
 }
 
 void WindowManager::OutputError(xcb_generic_error_t &e){
-	std::cerr << "Error code " << (int)e.error_code << ": Major " << (int)e.major_code << " minor " << (int)e.minor_code << "\n";
+#ifdef HAVE_LIBXCB_UTIL
+		std::cerr << "Received error: " << xcb_event_get_error_label(e.error_code) << " major: " << (int)e.major_code << " minor: " << (int)e.minor_code << "\n";
+#else
+		std::cerr << "Received x11 error: " << (int)e.error_code << ", major: " << (int)e.major_code << ", minor: " << (int)e.minor_code << "\n";
+#endif
 }
 
+/*
+ * This method returns the Touch object that matches the specified touch
+ * sequence identifier, if it exists. Returns NULL otherwise.
+ *
+ * Parameters:
+ * 	id: The touch sequence identifier
+ *
+ * Return value:
+ * 	The Touch object for the specified touch sequence identifier
+ */
 WindowManager::Touch *WindowManager::GetTouch(unsigned int id){
 	Touch *t = NULL;
 	for (TouchList::iterator itr = touch.begin(); itr != touch.end(); itr++){
@@ -222,10 +266,20 @@ WindowManager::Touch *WindowManager::GetTouch(unsigned int id){
 	return t;
 }
 
+/*
+ * This method returns the Window object that matches the specified
+ * window identifier, if it exists. Returns NULL otherwise.
+ *
+ * Parameters:
+ * 	w: The XCB window identifier
+ *
+ * Return value:
+ * 	The Window object for the specified xcb window
+ */
 Window *WindowManager::GetWindow(xcb_window_t w){
 	Window *win = NULL;
 	for (WindowList::iterator itr = windows.begin(); itr != windows.end(); itr++)
-		if (itr->window == w)
+		if (*itr == w)
 			return &(*itr);
 	return win;
 }
@@ -233,6 +287,10 @@ Window *WindowManager::GetWindow(xcb_window_t w){
 void WindowManager::SelectWindow(Window &w){
 }
 
+/*
+ * This method releases a window touch. It releases the window manager from
+ * tracking the window and the touch sequence, and also resets its opacity.
+ */
 void WindowManager::DeselectWindow(){
 	captureTouch = false;
 	if (touchWindow)
@@ -245,15 +303,14 @@ xcb_generic_event_t *WindowManager::WaitForEvent(){
 }
 
 void WindowManager::HandleEvent(xcb_generic_event_t *e){
+
+	// &0x7f in order to filter out the most significant bit, which
+	// indicates whether the event was produced by the X server or by
+	// a client. This distinction is ignored here.
 	uint8_t event_type = e->response_type&0x7f;
 	switch (event_type){
 	case 0:{
-		xcb_generic_error_t *error = (xcb_generic_error_t*)e;
-#ifdef HAVE_LIBXCB_UTIL
-		std::cerr << "Received error: " << xcb_event_get_error_label(error->error_code) << "major: " << (int)error->major_code << " minor: " << (int)error->minor_code << "\n";
-#else
-		std::cerr << "Received x11 error: " << (int)error->error_code << ", major: " << (int)error->major_code << ", minor: " << (int)error->minor_code << "\n";
-#endif
+		OutputError(*(xcb_generic_error_t*)e);
 		break;
 	}
 	case XCB_MAP_REQUEST:{
@@ -262,6 +319,10 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 	}
 	case XCB_CONFIGURE_REQUEST:{
 		HandleConfigureRequest(*(xcb_configure_request_event_t*)e);
+		break;
+	}
+	case XCB_CLIENT_MESSAGE:{
+		HandleClientMessage(*(xcb_client_message_event_t*)e);
 		break;
 	}
 	case XCB_BUTTON_PRESS:{
@@ -296,7 +357,11 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 
 	// currently ignored
 	case XCB_UNMAP_NOTIFY:
-	case XCB_CLIENT_MESSAGE:
+	//case XCB_CLIENT_MESSAGE:
+	case XCB_MAP_NOTIFY:
+	case XCB_DESTROY_NOTIFY:
+	case XCB_CREATE_NOTIFY:
+	case XCB_CONFIGURE_NOTIFY:
 		break;
 
 	default:
@@ -310,13 +375,56 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 }
 
 void WindowManager::HandleMapRequest(xcb_map_request_event_t &e){
-	Window window(connection, e.window);
+	Window window(e.window, e.parent);
 	xcb_void_cookie_t cookie;
 	xcb_generic_error_t *error;
 	cookie = xcb_map_window_checked(connection, e.window);
 	error = xcb_request_check(connection, cookie);
 	AddWindow(window);
 	xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, e.window, XCB_CURRENT_TIME);
+}
+
+void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
+	if (e.type == atom_NET_WM_STATE){
+
+		Window *w = GetWindow(e.window);
+		if (w == NULL)
+			return;
+
+		if (e.format != 32){
+			std::cerr << "Unexpected format: " << e.format << "\n";
+			return;
+		}
+
+		bool maxVert = false;
+		bool maxHorz = false;
+		if (e.data.data32[1] == WindowSystem::Get().GetEWMH()._NET_WM_STATE_MAXIMIZED_VERT
+			|| e.data.data32[2] == WindowSystem::Get().GetEWMH()._NET_WM_STATE_MAXIMIZED_VERT)
+			maxVert = true;
+		if (e.data.data32[1] == WindowSystem::Get().GetEWMH()._NET_WM_STATE_MAXIMIZED_HORZ
+			|| e.data.data32[2] == WindowSystem::Get().GetEWMH()._NET_WM_STATE_MAXIMIZED_HORZ)
+			maxHorz = true;
+
+		switch (e.data.data32[0]){
+		case 0: // remove
+			break;
+		case 1: // add
+			if (maxVert && maxHorz)
+				w->Maximize();
+			break;
+		case 2: // toggle
+			break;
+		default:
+			std::cerr << "Unknown operation " << e.data.data32[0] << "\n";
+		}
+	} else {
+		xcb_get_atom_name_cookie_t cc = xcb_get_atom_name(connection, e.type);
+		xcb_get_atom_name_reply_t *cr = xcb_get_atom_name_reply(connection, cc, NULL);
+		std::cout << "\tname: " << xcb_get_atom_name_name(cr) << "\n";
+		std::cout << "\tevent.data.data32[0] = " << e.data.data32[0] << "\n";
+		std::cout << "\tevent.data.data32[1] = " << e.data.data32[1] << "\n";
+		std::cout << "\tevent.data.data32[2] = " << e.data.data32[2] << "\n";
+	}
 }
 
 void WindowManager::HandleConfigureRequest(xcb_configure_request_event_t &e){
@@ -404,11 +512,12 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 	}
 
 	// always raise window on press
-	xcb_void_cookie_t cookie;
-	const static uint32_t values[] = { XCB_STACK_MODE_ABOVE };
-	xcb_configure_window(connection, event, XCB_CONFIG_WINDOW_STACK_MODE, values);
-	xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, event, XCB_CURRENT_TIME);
-	xcb_flush(connection);
+	if (captureTouch == false){
+		xcb_void_cookie_t cookie;
+		const static uint32_t values[] = { XCB_STACK_MODE_ABOVE };
+		xcb_configure_window(connection, event, XCB_CONFIG_WINDOW_STACK_MODE, values);
+		xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, event, XCB_CURRENT_TIME);
+	}
 
 	Window *w = GetWindow(event);
 	touch.push_back(Touch(e.detail, event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
@@ -419,15 +528,16 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 	else if (touch.size() == 1){
 		captureTouch = false;
 	}
-	else if (touch.size() > 1 && captureTouch == false){
+	else if (touch.size() == 2 && captureTouch == false){
 		captureTouch = true;
 		if (w){
 			w->SetOpacity(OPACITY_TRANSLUCENT);
 			touchWindow = w;
 		}
 	}
-	else if (w && touch.size() == 3 && w){
-		w->Maximize(root);
+	else if (touch.size() == 3 && w){
+		MaximizeWindow(*w, root);
+		//w->Maximize(root);
 	}
 
 }
@@ -454,7 +564,6 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 		return;
 	}
 
-	// Two touches required for WM uses
 	if (touch.size() == 1 && touchWindow == NULL){
 		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
 		xcb_flush(connection);
@@ -556,6 +665,41 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 	// always release captureTouch if there are no other touches
 	if (touch.size() == 0)
 		captureTouch = false;
+
+}
+
+/*
+ * This method toggles the vertical and horizontal maximized states of 
+ * the specified window, using extended window manager hints. It ultimately
+ * produces a CLIENT_MESSAGE event for the window manager. The actual size
+ * changes are managed by the Window object in response to this event - this
+ * ensures that the correct behavior results even if the state is changed
+ * by something other than the window manager.
+ *
+ * Parameters:
+ * 	window: the window to maximize
+ * 	root: the root window of "window"
+ */
+void WindowManager::MaximizeWindow(xcb_window_t window, xcb_window_t root){
+
+	xcb_client_message_event_t event;
+	event.response_type = XCB_CLIENT_MESSAGE;
+	event.format = 32;
+	event.sequence = 0;
+	event.window = window;
+	event.type = WindowSystem::Get().GetEWMH()._NET_WM_STATE;
+	event.data.data32[0] = 1L; // 0 = remove, 1 = add, 2 = toggle
+	event.data.data32[1] = WindowSystem::Get().GetEWMH()._NET_WM_STATE_MAXIMIZED_HORZ;
+	event.data.data32[2] = WindowSystem::Get().GetEWMH()._NET_WM_STATE_MAXIMIZED_VERT;
+	event.data.data32[3] = 0L;
+	event.data.data32[4] = 0L;
+
+	// send the event. Note the event mask is derived from source for xcb-ewmh
+	xcb_send_event(connection, false, root, XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT, (const char*)&event);
+
+	// flush to make sure the event is processed before the object
+	// goes out of scope
+	xcb_flush(connection);
 
 }
 

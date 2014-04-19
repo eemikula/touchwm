@@ -7,14 +7,13 @@
 
 class Screen {
 public:
-	Screen(xcb_connection_t *connection, xcb_screen_t *screen){this->connection = connection; this->screen = screen;}
+	Screen(xcb_screen_t *screen){this->screen = screen;}
 
-	Window GetRoot(){return Window(connection,screen->root);}
+	Window GetRoot(){return Window(screen->root,screen->root);}
 
 	operator xcb_screen_t* (){return screen;}
 
 private:
-	xcb_connection_t *connection;
 	xcb_screen_t *screen;
 };
 

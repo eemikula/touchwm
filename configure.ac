@@ -16,7 +16,7 @@ AC_PROG_CC
 AC_CHECK_LIB([xcb], [main])
 AC_CHECK_LIB([xcb-xinput], [main])
 AC_CHECK_LIB([xcb-util], [main])
-
+AC_CHECK_LIB([xcb-ewmh], [main])
 AC_CHECK_LIB([suinput], [main])
 
 # Checks for header files.

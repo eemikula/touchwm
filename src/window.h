@@ -8,15 +8,9 @@
 
 class Window {
 public:
-	Window(xcb_connection_t *connection, xcb_window_t win);
+	Window(xcb_window_t win, xcb_window_t root);
 	Window(const Window &w){
-		this->connection = w.connection;
-		this->window = w.window;
-		this->title = w.title;
-		this->x = w.x;
-		this->y = w.y;
-		this->width = w.width;
-		this->height = w.height;
+		*this = w;
 	}
 
 	Window &operator = (const Window &w){
@@ -27,23 +21,27 @@ public:
 		this->y = w.y;
 		this->width = w.width;
 		this->height = w.height;
+		this->root = w.root;
 	}
 
 	std::list<Window> GetChildren();
 	std::string GetTitle();
 	void Move(int x, int y);
 	void Expand(int width, int height, bool xshift, bool yshift);
-	void Maximize(xcb_window_t root);
 	void Configure(uint16_t mask, const uint32_t *values);
 	void SetOpacity(double opacity);
+	void Maximize();
 
 	operator xcb_window_t (){return window;}
-	xcb_window_t window;
+	xcb_window_t GetRootWindow(){return root;}
+
 private:
 	xcb_connection_t *connection;
 
 	std::string title;
 	int x, y, width, height;
+	xcb_window_t window;
+	xcb_window_t root;
 };
 
 typedef std::list<Window> WindowList;
