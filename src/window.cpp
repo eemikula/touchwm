@@ -21,8 +21,49 @@ Window::Window(xcb_window_t win, xcb_window_t root){
 	this->y = r->y;
 	this->width = r->width;
 	this->height = r->height;
-
 	free(r);
+
+	this->wmState = 0;
+	/*xcb_get_property_cookie_t pc = xcb_ewmh_get_wm_state(&ewmh(),window);
+	xcb_ewmh_get_atoms_reply_t atomsr;
+	int i = xcb_ewmh_get_wm_state_reply(&ewmh(),
+                    pc,
+                    &atomsr,
+                    &error);
+	if (error || i != 1){
+		std::cerr << "Error! " << i << "\n";
+	} else {
+		std::cout << "Atoms: " << atomsr.atoms_len << "\n";
+		for (int i = 0; i < atomsr.atoms_len; i++)
+			std::cout << (int)atomsr.atoms[i] << "\n";
+	}*/
+	xcb_get_property_cookie_t pc = xcb_get_property_unchecked(connection,
+		     0,
+		     window,
+		     ewmh()._NET_WM_STATE,
+		     XCB_ATOM_ATOM,
+		     0,
+		     1024);
+
+	xcb_get_property_reply_t *reply = xcb_get_property_reply(connection, pc, &error);
+	if (error){
+		std::cerr << "Error getting wm state\n";
+		return;
+	}
+	if (reply && reply->format == 32 && reply->type == XCB_ATOM_ATOM){
+		int length = xcb_get_property_value_length(reply)/sizeof(xcb_atom_t);
+		xcb_atom_t *prop = (xcb_atom_t*)xcb_get_property_value(reply);
+		if (prop){
+			for (int i = 0; i < length; i++){
+				if (prop[i] == ewmh()._NET_WM_STATE_MAXIMIZED_HORZ)
+					wmState |= MAXIMIZED_HORZ;
+				if (prop[i] == ewmh()._NET_WM_STATE_MAXIMIZED_VERT)
+					wmState |= MAXIMIZED_VERT;
+			}
+			free(reply);
+		}
+	}
+
 }
 
 WindowList Window::GetChildren(){
@@ -51,9 +92,11 @@ std::string Window::GetTitle(){
 		     100);
 
 		xcb_get_property_reply_t *reply = xcb_get_property_reply(connection, c, NULL);
-		char *prop = (char*)xcb_get_property_value(reply);
-		title = prop;
-		free(reply);
+		if (reply){
+			char *prop = (char*)xcb_get_property_value(reply);
+			title = prop;
+			free(reply);
+		}
 	}
 	return title;
 }
@@ -110,7 +153,99 @@ void Window::SetOpacity(double op){
 
 }
 
-void Window::Maximize(){
-	std::cout << "Size!\n";
+/*
+ * This method maximizes the window to a target window (e.g., root window)
+ * 
+ * Parameters:
+ * 	target: A window object whose geometry will be used as the frame
+ *		of reference for maximizing the window
+ */
+void Window::Maximize(const Window &target, WMStateChange change){
+	uint16_t state = wmState;
+	switch (change){
+	case SET:
+		state |= MAXIMIZED_VERT | MAXIMIZED_HORZ;
+		break;
+	case CLEAR:
+		state &= ~(MAXIMIZED_VERT | MAXIMIZED_HORZ);
+		break;
+	case TOGGLE:
+		state ^= MAXIMIZED_VERT | MAXIMIZED_HORZ;
+		break;
+	}
+	SetWMState(state);
+
+	if (GetWMState(MAXIMIZED_VERT | MAXIMIZED_HORZ)){
+		uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y;
+		uint32_t values[4];
+		values[0] = 0;
+		values[1] = 0;
+
+		// prevent sending resize unless the window is actually being resized
+		if (this->width != target.width || this->height != target.height){
+			mask |= XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+			values[2] = target.width;
+			values[3] = target.height;
+		}
+		xcb_configure_window(connection, window, mask, values);
+	} else {
+		uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y
+				| XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+		uint32_t values[4];
+		values[0] = x;
+		values[1] = y;
+		values[2] = width;
+		values[3] = height;
+		xcb_configure_window(connection, window, mask, values);
+	}
+	xcb_flush(connection);
 }
 
+/*
+ * This method sets the window's state mask, and applies the relevant atoms to
+ * the window's _NET_WM_STATE property, thereby enacting those window states.
+ * Note that this method does not flush its state, so it must be done manually.
+ *
+ * Parameters:
+ * 	state: the new state mask for the window, composed of WMState values
+ */
+void Window::SetWMState(uint16_t state){
+	if (wmState != state){
+		wmState = state;
+		xcb_atom_t atoms[16];
+		int i = 0;
+		if ((wmState & MODAL) == MODAL)
+			atoms[i++] = ewmh()._NET_WM_STATE_MODAL;
+		if ((wmState & STICKY) == STICKY)
+			atoms[i++] = ewmh()._NET_WM_STATE_STICKY;
+		if ((wmState & MAXIMIZED_VERT) == MAXIMIZED_VERT)
+			atoms[i++] = ewmh()._NET_WM_STATE_MAXIMIZED_VERT;
+		if ((wmState & MAXIMIZED_HORZ) == MAXIMIZED_HORZ)
+			atoms[i++] = ewmh()._NET_WM_STATE_MAXIMIZED_HORZ;
+		if ((wmState & SHADED) == SHADED)
+			atoms[i++] = ewmh()._NET_WM_STATE_SHADED;
+		if ((wmState & SKIP_TASKBAR) == SKIP_TASKBAR)
+			atoms[i++] = ewmh()._NET_WM_STATE_SKIP_TASKBAR;
+		if ((wmState & SKIP_PAGER) == SKIP_PAGER)
+			atoms[i++] = ewmh()._NET_WM_STATE_SKIP_PAGER;
+		if ((wmState & HIDDEN) == HIDDEN)
+			atoms[i++] = ewmh()._NET_WM_STATE_HIDDEN;
+		if ((wmState & FULLSCREEN) == FULLSCREEN)
+			atoms[i++] = ewmh()._NET_WM_STATE_FULLSCREEN;
+		if ((wmState & ABOVE) == ABOVE)
+			atoms[i++] = ewmh()._NET_WM_STATE_ABOVE;
+		if ((wmState & BELOW) == BELOW)
+			atoms[i++] = ewmh()._NET_WM_STATE_BELOW;
+		if ((wmState & DEMANDS_ATTENTION) == DEMANDS_ATTENTION)
+			atoms[i++] = ewmh()._NET_WM_STATE_DEMANDS_ATTENTION;
+		xcb_change_property(connection, XCB_PROP_MODE_REPLACE, window, ewmh()._NET_WM_STATE, XCB_ATOM_ATOM, 32, i, atoms);
+	}
+}
+
+/*
+ * This method maximizes the window, using its parent as a target
+ */
+void Window::Maximize(WMStateChange change){
+	if (root)
+		Maximize(Window(root,0), change);
+}

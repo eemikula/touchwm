@@ -93,7 +93,7 @@ WindowManager::WindowManager(){
 	if (connection == NULL){
 		std::cerr << "Unable to get connection\n";
 		//FIXME: Throw an error here
-		return 1;
+		return;
 	}
 
 	xcb_input_xi_query_version_cookie_t c = xcb_input_xi_query_version_unchecked(connection, 2, 2);
@@ -101,6 +101,17 @@ WindowManager::WindowManager(){
 	std::cout << "xcb input version: " << r->major_version << "." << r->minor_version << "\n";
 	if (r)
 		free(r);
+
+	/*xcb_atom_t atoms[] = {
+		ewmh()._NET_WM_STATE,
+		ewmh()._NET_WM_STATE_MAXIMIZED_VERT,
+		ewmh()._NET_WM_STATE_MAXIMIZED_HORZ
+	};
+	xcb_ewmh_set_supported(&ewmh(), 0, 3, atoms);*/
+
+	std::cout << "_NET_WM_STATE: " << ewmh()._NET_WM_STATE << "\n";
+	std::cout << "_NET_WM_STATE_MAXIMIZED_VERT: " << ewmh()._NET_WM_STATE_MAXIMIZED_VERT << "\n";
+	std::cout << "_NET_WM_STATE_MAXIMIZED_HORZ: " << ewmh()._NET_WM_STATE_MAXIMIZED_HORZ << "\n";
 
 }
 
@@ -236,6 +247,10 @@ void WindowManager::AddWindow(Window &window){
 		free(error);
 	}
 
+	//TODO: Apply any pre-existing maximization here!
+	if (window.GetWMState(MAXIMIZED_HORZ | MAXIMIZED_VERT))
+		window.Maximize(SET);
+
 	xcb_flush(connection);
 }
 
@@ -357,7 +372,6 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 
 	// currently ignored
 	case XCB_UNMAP_NOTIFY:
-	//case XCB_CLIENT_MESSAGE:
 	case XCB_MAP_NOTIFY:
 	case XCB_DESTROY_NOTIFY:
 	case XCB_CREATE_NOTIFY:
@@ -385,7 +399,7 @@ void WindowManager::HandleMapRequest(xcb_map_request_event_t &e){
 }
 
 void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
-	if (e.type == atom_NET_WM_STATE){
+	if (e.type == ewmh()._NET_WM_STATE){
 
 		Window *w = GetWindow(e.window);
 		if (w == NULL)
@@ -398,21 +412,25 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 
 		bool maxVert = false;
 		bool maxHorz = false;
-		if (e.data.data32[1] == WindowSystem::Get().GetEWMH()._NET_WM_STATE_MAXIMIZED_VERT
-			|| e.data.data32[2] == WindowSystem::Get().GetEWMH()._NET_WM_STATE_MAXIMIZED_VERT)
+		if (e.data.data32[1] == ewmh()._NET_WM_STATE_MAXIMIZED_VERT
+			|| e.data.data32[2] == ewmh()._NET_WM_STATE_MAXIMIZED_VERT)
 			maxVert = true;
-		if (e.data.data32[1] == WindowSystem::Get().GetEWMH()._NET_WM_STATE_MAXIMIZED_HORZ
-			|| e.data.data32[2] == WindowSystem::Get().GetEWMH()._NET_WM_STATE_MAXIMIZED_HORZ)
+		if (e.data.data32[1] == ewmh()._NET_WM_STATE_MAXIMIZED_HORZ
+			|| e.data.data32[2] == ewmh()._NET_WM_STATE_MAXIMIZED_HORZ)
 			maxHorz = true;
 
 		switch (e.data.data32[0]){
 		case 0: // remove
+			if (maxVert && maxHorz)
+				w->Maximize(CLEAR);
 			break;
 		case 1: // add
 			if (maxVert && maxHorz)
-				w->Maximize();
+				w->Maximize(SET);
 			break;
 		case 2: // toggle
+			if (maxVert && maxHorz)
+				w->Maximize(TOGGLE);
 			break;
 		default:
 			std::cerr << "Unknown operation " << e.data.data32[0] << "\n";
@@ -537,7 +555,6 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 	}
 	else if (touch.size() == 3 && w){
 		MaximizeWindow(*w, root);
-		//w->Maximize(root);
 	}
 
 }
@@ -573,6 +590,7 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 	} else if (touch.size() == 1 && touchWindow != NULL){
 		t->x = x;
 		t->y = y;
+		touchWindow->Maximize(CLEAR);
 		touchWindow->Move(t->x-t->xoff, t->y-t->yoff);
 		xcb_flush(connection);
 		captureTouch = true;
@@ -603,8 +621,10 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 		dy = abs(touch[0].y-touch[1].y)-dy;
 
 		Window *w = GetWindow(t->window);
-		if (w)
+		if (w){
+			w->Maximize(CLEAR);
 			w->Expand(dx, dy, xshift, yshift);
+		}
 
 	} else {
 		t->x = x;
@@ -650,7 +670,7 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 		DeselectWindow();
 	} else if (touch.size() == 1 && moved == false && w == touchWindow && captureTouch == false){
 
-		int r;
+		/*int r;
 		r = suinput_emit(uinput_fd, EV_KEY, BTN_RIGHT, 1);
 		if (r != -1)
 			r = suinput_emit(uinput_fd, EV_KEY, BTN_RIGHT, 0);
@@ -658,7 +678,7 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 			r = suinput_syn(uinput_fd);
 		if (r == -1)
 			std::cerr << "Error occurred simulating mouse click\n";
-		DeselectWindow();
+		DeselectWindow();*/
 
 	}
 
@@ -687,10 +707,10 @@ void WindowManager::MaximizeWindow(xcb_window_t window, xcb_window_t root){
 	event.format = 32;
 	event.sequence = 0;
 	event.window = window;
-	event.type = WindowSystem::Get().GetEWMH()._NET_WM_STATE;
-	event.data.data32[0] = 1L; // 0 = remove, 1 = add, 2 = toggle
-	event.data.data32[1] = WindowSystem::Get().GetEWMH()._NET_WM_STATE_MAXIMIZED_HORZ;
-	event.data.data32[2] = WindowSystem::Get().GetEWMH()._NET_WM_STATE_MAXIMIZED_VERT;
+	event.type = ewmh()._NET_WM_STATE;
+	event.data.data32[0] = 2L; // 0 = remove, 1 = add, 2 = toggle
+	event.data.data32[1] = ewmh()._NET_WM_STATE_MAXIMIZED_HORZ;
+	event.data.data32[2] = ewmh()._NET_WM_STATE_MAXIMIZED_VERT;
 	event.data.data32[3] = 0L;
 	event.data.data32[4] = 0L;
 

@@ -27,5 +27,8 @@ private:
 	xcb_ewmh_connection_t ewmh;
 };
 
+static inline xcb_connection_t *xcb(){return WindowSystem::Get();}
+static inline xcb_ewmh_connection_t &ewmh(){return WindowSystem::Get().GetEWMH();}
+
 #endif
 

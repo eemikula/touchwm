@@ -6,6 +6,25 @@
 
 #include <xcb/xcb.h>
 
+enum WMState {
+	MODAL = 1,
+	STICKY = 1<<1,
+	MAXIMIZED_VERT = 1<<2,
+	MAXIMIZED_HORZ = 1<<3,
+	SHADED = 1<<4,
+	SKIP_TASKBAR = 1<<5,
+	SKIP_PAGER = 1<<6,
+	HIDDEN = 1<<7,
+	FULLSCREEN = 1<<8,
+	ABOVE = 1<<9,
+	BELOW = 1<<10,
+	DEMANDS_ATTENTION = 1<<11
+};
+
+enum WMStateChange {
+	SET, CLEAR, TOGGLE
+};
+
 class Window {
 public:
 	Window(xcb_window_t win, xcb_window_t root);
@@ -30,7 +49,10 @@ public:
 	void Expand(int width, int height, bool xshift, bool yshift);
 	void Configure(uint16_t mask, const uint32_t *values);
 	void SetOpacity(double opacity);
-	void Maximize();
+	void Maximize(WMStateChange change);
+	void Maximize(const Window &target, WMStateChange change);
+	uint16_t GetWMState(){return wmState;}
+	bool GetWMState(uint16_t mask){return (wmState & mask) == mask;}
 
 	operator xcb_window_t (){return window;}
 	xcb_window_t GetRootWindow(){return root;}
@@ -42,6 +64,9 @@ private:
 	int x, y, width, height;
 	xcb_window_t window;
 	xcb_window_t root;
+	uint16_t wmState;
+
+	void SetWMState(uint16_t state);
 };
 
 typedef std::list<Window> WindowList;

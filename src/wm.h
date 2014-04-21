@@ -85,12 +85,6 @@ private:
 
 	void SendEvent(xcb_window_t window, xcb_generic_event_t &e, xcb_event_mask_t mask);
 
-	// stored atoms
-	xcb_atom_t 	atom_NET_WM_STATE,
-			atom_NET_WM_STATE_MAXIMIZED_HORZ,
-			atom_NET_WM_STATE_MAXIMIZED_VERT,
-			atom_NET_WM_WINDOW_OPACITY;
-
 };
 
 struct EventThreadArg {
