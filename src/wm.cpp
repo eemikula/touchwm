@@ -34,6 +34,20 @@ const double OPACITY_TRANSLUCENT = 0.75;
 
 int main(int argc, char* argv[]){
 
+	bool replaceWm = false;
+	for (int a = 1; a < argc; a++){
+		if (argv[a][0] == '-'){
+			if (strcmp(argv[a],"--replace") == 0){
+				replaceWm = true;
+			} else {
+				std::cerr << "Unknown option " << argv[a] << "\n";
+				return 1;
+			}
+		} else {
+			
+		}
+	}
+
 	WindowManager wm;
 	ScreenList screens = wm.GetScreens();
 	if (screens.size() == 0){
@@ -43,11 +57,10 @@ int main(int argc, char* argv[]){
 
 	for (ScreenList::iterator itr = screens.begin(); itr != screens.end(); itr++){
 		Screen &s = *itr;
-		if (!wm.Redirect(s)){
+		if (!wm.Redirect(s, replaceWm)){
 			std::cerr << "Unable to apply substructure redirect\n";
 			return 1;
 		}
-
 	}
 
 	while (xcb_generic_event_t *e = wm.WaitForEvent()){
@@ -109,10 +122,6 @@ WindowManager::WindowManager(){
 	};
 	xcb_ewmh_set_supported(&ewmh(), 0, 3, atoms);*/
 
-	std::cout << "_NET_WM_STATE: " << ewmh()._NET_WM_STATE << "\n";
-	std::cout << "_NET_WM_STATE_MAXIMIZED_VERT: " << ewmh()._NET_WM_STATE_MAXIMIZED_VERT << "\n";
-	std::cout << "_NET_WM_STATE_MAXIMIZED_HORZ: " << ewmh()._NET_WM_STATE_MAXIMIZED_HORZ << "\n";
-
 }
 
 void WindowManager::ListDevices(){
@@ -146,17 +155,19 @@ WindowManager::~WindowManager(){
 }
 
 ScreenList WindowManager::GetScreens(){
-	ScreenList l;
+
+	if (screens.size())
+		return screens;
 
 	const xcb_setup_t *setup = xcb_get_setup(connection);
 	if (setup == NULL)
-		return l;
+		return screens;
 
 	int roots = xcb_setup_roots_length(setup);
 	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
-	for (; iter.rem; xcb_screen_next(&iter))
-		l.push_back(Screen(iter.data));
-	return l;
+	for (int i = 0; iter.rem; xcb_screen_next(&iter), i++)
+		screens.push_back(Screen(iter.data, i));
+	return screens;
 }
 
 /*
@@ -167,18 +178,61 @@ ScreenList WindowManager::GetScreens(){
  * Parameters:
  * 	screen: The screen on which the redirect is applied
  */
-bool WindowManager::Redirect(Screen &screen){
+bool WindowManager::Redirect(Screen &screen, bool replace){
 
-	const static uint32_t values[] = {	XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT };
+	xcb_get_selection_owner_cookie_t oc = xcb_get_selection_owner(connection, screen.GetAtom());
+	xcb_get_selection_owner_reply_t *r = xcb_get_selection_owner_reply(connection, oc, NULL);
+	xcb_window_t owner = 0;
+	if (r)
+		owner = r->owner;
+	free(r);
 
+	if (replace){
+		if (owner){
+			const static uint32_t values[] = { XCB_EVENT_MASK_STRUCTURE_NOTIFY };
+			xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(connection, owner, XCB_CW_EVENT_MASK, values);
+			xcb_generic_error_t *error;
+			if (error = xcb_request_check(connection, cookie)) {
+				std::cerr << "Unable to replace running window manager\n";
+				free(error);
+				return false;
+			}
+		} else {
+			std::cerr << "No running manager to replace\n";
+		}
+	} else if (owner){
+		std::cerr << "Another window manager is currently active. Consider using --replace\n";
+		return false;
+	}
+
+	// set this new window as owning the screen
+	xcb_void_cookie_t soc = xcb_set_selection_owner(xcb(), screen.GetWindow(), screen.GetAtom(), XCB_CURRENT_TIME);
+	xcb_flush(xcb());
+
+	if (replace && owner){
+		std::cout << "Waiting for previous window manager to shut down...\n";
+		bool shutdown = false;
+		while (shutdown == false){
+			xcb_generic_event_t *e = WaitForEvent();
+
+			// shutdown if no event, or event destroys previous manager
+			if (!e ||
+			   (((e->response_type)&0x7f) == XCB_DESTROY_NOTIFY &&
+			   ((xcb_destroy_notify_event_t*)e)->window == owner))
+				shutdown = true;
+			free(e);
+		}
+	}
+	std::cout << "Done.\n";
+
+
+	const static uint32_t values[] = { XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT };
 	Window rootWindow = screen.GetRoot();
 	xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(connection, rootWindow, XCB_CW_EVENT_MASK, values);
 	xcb_generic_error_t *error;
 	if (error = xcb_request_check(connection, cookie)) {
 		free(error);
 		return false;
-	} else {
-		std::cout << "Redirect successful\n";
 	}
 
 	// Manage any existing toplevel windows
@@ -313,7 +367,13 @@ void WindowManager::DeselectWindow(){
 	touchWindow = NULL;
 }
 
+/*
+ * This method synchronously returns the next event. Note that if the window
+ * manager is no longer controlling any screens, it will instead return NULL.
+ */
 xcb_generic_event_t *WindowManager::WaitForEvent(){
+	if (screens.size() == 0)
+		return NULL;
 	return xcb_wait_for_event(connection);
 }
 
@@ -369,11 +429,15 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 		}
 		break;
 	}
+	case XCB_SELECTION_CLEAR:{
+		HandleSelectionClear(*(xcb_selection_clear_event_t*)e);
+		break;
+	}
 
 	// currently ignored
 	case XCB_UNMAP_NOTIFY:
-	case XCB_MAP_NOTIFY:
 	case XCB_DESTROY_NOTIFY:
+	case XCB_MAP_NOTIFY:
 	case XCB_CREATE_NOTIFY:
 	case XCB_CONFIGURE_NOTIFY:
 		break;
@@ -476,11 +540,12 @@ void WindowManager::SendEvent(xcb_window_t window, xcb_generic_event_t &event, x
 
 void WindowManager::HandleButtonPress(xcb_button_press_event_t &e){
 
+	DeselectWindow();
+
 	// always raise window on press
-	xcb_void_cookie_t cookie;
-	const static uint32_t values[] = { XCB_STACK_MODE_ABOVE };
-	xcb_configure_window(connection, e.event, XCB_CONFIG_WINDOW_STACK_MODE, values);
-	xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, e.event, XCB_CURRENT_TIME);
+	Window *w = GetWindow(e.event);
+	if (w)
+		w->Raise();
 
 	// if moving
 	if (e.state & XCB_MOD_MASK_1){
@@ -529,15 +594,10 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 		return;
 	}
 
-	// always raise window on press
-	if (captureTouch == false){
-		xcb_void_cookie_t cookie;
-		const static uint32_t values[] = { XCB_STACK_MODE_ABOVE };
-		xcb_configure_window(connection, event, XCB_CONFIG_WINDOW_STACK_MODE, values);
-		xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, event, XCB_CURRENT_TIME);
-	}
-
 	Window *w = GetWindow(event);
+	if (w && captureTouch == false)
+		w->Raise();
+
 	touch.push_back(Touch(e.detail, event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
 
 	if (touch.size() == 1 && w != touchWindow){
@@ -686,6 +746,24 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 	if (touch.size() == 0)
 		captureTouch = false;
 
+}
+
+/*
+ * This method handles selection clear events. Currently this is only used
+ * to recognize when another window manager has claimed control of a screen,
+ * and to relinquish it accordingly.
+ */
+void WindowManager::HandleSelectionClear(xcb_selection_clear_event_t &e){
+	for (ScreenList::iterator itr = screens.begin(); itr != screens.end(); itr++){
+		Screen &s = *itr;
+		if (e.selection == s.GetAtom()){
+			if (s.GetWindow() == e.owner){
+				std::cout << "Lost ownership of screen\n";
+				screens.erase(itr);
+				break;
+			}
+		}
+	}
 }
 
 /*

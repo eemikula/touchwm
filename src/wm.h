@@ -22,7 +22,7 @@ public:
 	~WindowManager();
 
 	ScreenList GetScreens();
-	bool Redirect(Screen &screen);
+	bool Redirect(Screen &screen, bool replace);
 	void AddWindow(Window &window);
 	xcb_generic_event_t *WaitForEvent();
 	void ListDevices();
@@ -56,6 +56,7 @@ private:
 	typedef std::list<Window> WindowList;
 
 	xcb_connection_t *connection;
+	ScreenList screens;
 	TouchList touch;
 	bool captureTouch;
 	WindowList windows;
@@ -82,6 +83,7 @@ private:
 	void HandleTouchBegin(xcb_input_touch_begin_event_t &e);
 	void HandleTouchUpdate(xcb_input_touch_update_event_t &e);
 	void HandleTouchEnd(xcb_input_touch_end_event_t &e);
+	void HandleSelectionClear(xcb_selection_clear_event_t &e);
 
 	void SendEvent(xcb_window_t window, xcb_generic_event_t &e, xcb_event_mask_t mask);
 

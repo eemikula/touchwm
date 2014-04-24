@@ -21,6 +21,10 @@ enum WMState {
 	DEMANDS_ATTENTION = 1<<11
 };
 
+enum WindowType {
+	DESKTOP, DOCK, TOOLBAR, MENU, UTILITY, SPLASH, DIALOG, NORMAL
+};
+
 enum WMStateChange {
 	SET, CLEAR, TOGGLE
 };
@@ -41,12 +45,14 @@ public:
 		this->width = w.width;
 		this->height = w.height;
 		this->root = w.root;
+		this->type = w.type;
 	}
 
 	std::list<Window> GetChildren();
 	std::string GetTitle();
 	void Move(int x, int y);
 	void Expand(int width, int height, bool xshift, bool yshift);
+	void Raise();
 	void Configure(uint16_t mask, const uint32_t *values);
 	void SetOpacity(double opacity);
 	void Maximize(WMStateChange change);
@@ -65,6 +71,7 @@ private:
 	xcb_window_t window;
 	xcb_window_t root;
 	uint16_t wmState;
+	WindowType type;
 
 	void SetWMState(uint16_t state);
 };
