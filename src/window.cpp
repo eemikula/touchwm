@@ -158,8 +158,10 @@ void Window::Raise(){
 		xcb_void_cookie_t cookie;
 		const static uint32_t values[] = { XCB_STACK_MODE_ABOVE };
 		xcb_configure_window(connection, window, XCB_CONFIG_WINDOW_STACK_MODE, values);
-		xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, window, XCB_CURRENT_TIME);
 	}
+
+	// apply focus
+	xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, window, XCB_CURRENT_TIME);
 }
 
 void Window::Configure(uint16_t mask, const uint32_t *values){
@@ -198,7 +200,7 @@ void Window::SetOpacity(double op){
  * 	target: A window object whose geometry will be used as the frame
  *		of reference for maximizing the window
  */
-void Window::Maximize(const Window &target, WMStateChange change){
+void Window::Maximize(xcb_window_t target, WMStateChange change){
 	uint16_t state = wmState;
 	switch (change){
 	case SET:
@@ -211,6 +213,11 @@ void Window::Maximize(const Window &target, WMStateChange change){
 		state ^= MAXIMIZED_VERT | MAXIMIZED_HORZ;
 		break;
 	}
+
+	// just return if there were no changes
+	if (state == wmState)
+		return;
+
 	SetWMState(state);
 
 	if (GetWMState(MAXIMIZED_VERT | MAXIMIZED_HORZ)){
@@ -219,11 +226,15 @@ void Window::Maximize(const Window &target, WMStateChange change){
 		values[0] = 0;
 		values[1] = 0;
 
+		// only generate a Window object if it's actually going to be used,
+		// since retrieving its geometry is expensive
+		Window w(target, 0);
+
 		// prevent sending resize unless the window is actually being resized
-		if (this->width != target.width || this->height != target.height){
+		if (this->width != w.width || this->height != w.height){
 			mask |= XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-			values[2] = target.width;
-			values[3] = target.height;
+			values[2] = w.width;
+			values[3] = w.height;
 		}
 		xcb_configure_window(connection, window, mask, values);
 	} else {
@@ -285,5 +296,5 @@ void Window::SetWMState(uint16_t state){
  */
 void Window::Maximize(WMStateChange change){
 	if (root)
-		Maximize(Window(root,0), change);
+		Maximize(root, change);
 }

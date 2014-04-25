@@ -56,7 +56,7 @@ public:
 	void Configure(uint16_t mask, const uint32_t *values);
 	void SetOpacity(double opacity);
 	void Maximize(WMStateChange change);
-	void Maximize(const Window &target, WMStateChange change);
+	void Maximize(xcb_window_t target, WMStateChange change);
 	uint16_t GetWMState(){return wmState;}
 	bool GetWMState(uint16_t mask){return (wmState & mask) == mask;}
 

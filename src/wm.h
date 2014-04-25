@@ -43,6 +43,7 @@ private:
 			this->xoff = x;
 			this->yoff = y;
 			this->moved = false;
+			this->unaccepted = true;
 		}
 
 		xcb_window_t window;
@@ -50,6 +51,7 @@ private:
 		int xoff, yoff;
 		unsigned int id;
 		bool moved;
+		bool unaccepted;
 	};
 
 	typedef std::vector<Touch> TouchList;
@@ -72,6 +74,9 @@ private:
 	void SelectWindow(Window &w);
 	void DeselectWindow();
 	void MaximizeWindow(xcb_window_t window, xcb_window_t root);
+
+	void AcceptTouch(xcb_input_touch_begin_event_t t);
+	void RejectTouch(xcb_input_touch_begin_event_t t);
 
 	// Event handlers
 	void HandleMapRequest(xcb_map_request_event_t &e);

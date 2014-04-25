@@ -273,7 +273,6 @@ void WindowManager::AddWindow(Window &window){
 						XCB_BUTTON_INDEX_ANY,
 						//XCB_MOD_MASK_1 | XCB_MOD_MASK_2);
 						XCB_MOD_MASK_ANY);
-	//xcb_flush(connection);
 
 	const uint32_t mask[] = {XCB_INPUT_XI_EVENT_MASK_TOUCH_BEGIN
 							| XCB_INPUT_XI_EVENT_MASK_TOUCH_UPDATE
@@ -365,6 +364,26 @@ void WindowManager::DeselectWindow(){
 	if (touchWindow)
 		touchWindow->SetOpacity(OPACITY_MAX);
 	touchWindow = NULL;
+}
+
+void WindowManager::AcceptTouch(xcb_input_touch_begin_event_t e){
+	Touch *t = GetTouch(e.detail);
+	if (!t || t->unaccepted == true){
+		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_ACCEPT_TOUCH, e.detail, e.event);	
+		xcb_flush(connection);
+	}
+	if (t)
+		t->unaccepted = false;
+}
+
+void WindowManager::RejectTouch(xcb_input_touch_begin_event_t e){
+	Touch *t = GetTouch(e.detail);
+	if (!t || t->unaccepted == true){
+		xcb_input_xi_allow_events_checked(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
+		xcb_flush(connection);
+	}
+	if (t)
+		t->unaccepted = false;
 }
 
 /*
@@ -581,7 +600,6 @@ void WindowManager::HandleMotion(xcb_motion_notify_event_t &e){
 }
 
 void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
-
 	xcb_window_t event = e.event;
 	xcb_window_t root = e.root;
 	xcb_window_t child = e.child;
@@ -589,7 +607,7 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 		if (child == root)
 			DeselectWindow();
 		captureTouch = false;
-		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
+		RejectTouch(e);
 		xcb_flush(connection);
 		return;
 	}
@@ -600,21 +618,30 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 
 	touch.push_back(Touch(e.detail, event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
 
+	// no accept or reject, additional touches may mean accept,
+	// but so can't reject yet
 	if (touch.size() == 1 && w != touchWindow){
 		DeselectWindow();
 	}
+
+	// if touching touchWindow, accept, since this means moving
 	else if (touch.size() == 1){
 		captureTouch = false;
+		AcceptTouch(e);
 	}
+
+	// if two touches, accept
 	else if (touch.size() == 2 && captureTouch == false){
 		captureTouch = true;
 		if (w){
 			w->SetOpacity(OPACITY_TRANSLUCENT);
 			touchWindow = w;
 		}
+		AcceptTouch(e);
 	}
 	else if (touch.size() == 3 && w){
 		MaximizeWindow(*w, root);
+		AcceptTouch(e);
 	}
 
 }
@@ -628,7 +655,7 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 		if (child == root)
 			DeselectWindow();
 		captureTouch = false;
-		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
+		RejectTouch(e);
 		xcb_flush(connection);
 		return;
 	}
@@ -636,13 +663,9 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 	double x = e.root_x / 65536.0;
 	double y = e.root_y / 65536.0;
 	Touch *t = GetTouch(e.detail);
-	if (!t){
-		std::cerr << "Unknown touch\n";
-		return;
-	}
 
 	if (touch.size() == 1 && touchWindow == NULL){
-		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
+		RejectTouch(e);
 		xcb_flush(connection);
 		t->x = x;
 		t->y = y;
@@ -690,12 +713,12 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 		t->x = x;
 		t->y = y;
 		t->moved = true;
+		RejectTouch(e);
 	}
 
 }
 
 void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
-
 	xcb_window_t event = e.event;
 	xcb_window_t root = e.root;
 	xcb_window_t child = e.child;
@@ -703,16 +726,15 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 		if (child == root)
 			DeselectWindow();
 		captureTouch = false;
-		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
-		xcb_flush(connection);
+		// no need to reject touch here because it has already been rejected
 		return;
 	}
 
-	if (!captureTouch){
-		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
-		xcb_flush(connection);
+	if (!touchWindow){
+		RejectTouch(e);
+		//xcb_flush(connection);
 	} else {
-		//xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_ACCEPT_TOUCH, e.detail, e.event);
+		AcceptTouch(e);
 	}
 
 	bool moved = false;
