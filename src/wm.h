@@ -11,6 +11,7 @@
 
 #include "screen.h"
 #include "window.h"
+#include "wmwindow.h"
 
 #define MAX_TOUCHES 10
 
@@ -65,6 +66,7 @@ private:
 	Window *clickWindow;
 	Window *touchWindow;
 	int xoff, yoff;
+	WMWindow *wmMenu;
 
 	void OutputError(xcb_generic_error_t &e);
 
@@ -74,6 +76,7 @@ private:
 	void SelectWindow(Window &w);
 	void DeselectWindow();
 	void MaximizeWindow(xcb_window_t window, xcb_window_t root);
+	void GrabTouch(Window &w);
 
 	void AcceptTouch(xcb_input_touch_begin_event_t t);
 	void RejectTouch(xcb_input_touch_begin_event_t t);
@@ -89,6 +92,9 @@ private:
 	void HandleTouchUpdate(xcb_input_touch_update_event_t &e);
 	void HandleTouchEnd(xcb_input_touch_end_event_t &e);
 	void HandleSelectionClear(xcb_selection_clear_event_t &e);
+	void HandleDestroyNotify(xcb_destroy_notify_event_t &e);
+	void HandleConfigureNotify(xcb_configure_notify_event_t &e);
+	void HandleExpose(xcb_expose_event_t &e);
 
 	void SendEvent(xcb_window_t window, xcb_generic_event_t &e, xcb_event_mask_t mask);
 

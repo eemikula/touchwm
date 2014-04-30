@@ -3,20 +3,8 @@
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
 
-/* Define to 1 if you have the `suinput' library (-lsuinput). */
-#undef HAVE_LIBSUINPUT
-
-/* Define to 1 if you have the `xcb' library (-lxcb). */
-#undef HAVE_LIBXCB
-
-/* Define to 1 if you have the `xcb-ewmh' library (-lxcb-ewmh). */
-#undef HAVE_LIBXCB_EWMH
-
 /* Define to 1 if you have the `xcb-util' library (-lxcb-util). */
 #undef HAVE_LIBXCB_UTIL
-
-/* Define to 1 if you have the `xcb-xinput' library (-lxcb-xinput). */
-#undef HAVE_LIBXCB_XINPUT
 
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H

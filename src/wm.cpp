@@ -55,8 +55,14 @@ int main(int argc, char* argv[]){
 		return 1;
 	}
 
-	for (ScreenList::iterator itr = screens.begin(); itr != screens.end(); itr++){
+	int i = 0;
+	for (ScreenList::iterator itr = screens.begin(); itr != screens.end(); itr++, i++){
 		Screen &s = *itr;
+		xcb_get_selection_owner_cookie_t oc = xcb_get_selection_owner(xcb(),ewmh()._NET_WM_CM_Sn[i]);
+		xcb_get_selection_owner_reply_t *r = xcb_get_selection_owner_reply(xcb(), oc, NULL);
+		if (!r || !r->owner)
+			std::cout << "No compositor is running. This will significantly impact user experience! Consider starting xcompmgr.\n";
+		
 		if (!wm.Redirect(s, replaceWm)){
 			std::cerr << "Unable to apply substructure redirect\n";
 			return 1;
@@ -102,6 +108,7 @@ WindowManager::WindowManager(){
 	clickWindow = 0;
 	touchWindow = 0;
 	captureTouch = false;
+	wmMenu = NULL;
 
 	if (connection == NULL){
 		std::cerr << "Unable to get connection\n";
@@ -223,10 +230,10 @@ bool WindowManager::Redirect(Screen &screen, bool replace){
 			free(e);
 		}
 	}
-	std::cout << "Done.\n";
 
-
-	const static uint32_t values[] = { XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT };
+	const static uint32_t values[] = { XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT 
+					 | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY
+					 | XCB_EVENT_MASK_STRUCTURE_NOTIFY};
 	Window rootWindow = screen.GetRoot();
 	xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(connection, rootWindow, XCB_CW_EVENT_MASK, values);
 	xcb_generic_error_t *error;
@@ -255,6 +262,8 @@ bool WindowManager::Redirect(Screen &screen, bool replace){
  * 	window: The window to be managed
  */
 void WindowManager::AddWindow(Window &window){
+
+	// add the window to the list of managed windows
 	windows.push_back(window);
 
 	xcb_void_cookie_t cookie;
@@ -274,6 +283,20 @@ void WindowManager::AddWindow(Window &window){
 						//XCB_MOD_MASK_1 | XCB_MOD_MASK_2);
 						XCB_MOD_MASK_ANY);
 
+	GrabTouch(window);
+
+	//TODO: Apply any pre-existing maximization here!
+	if (window.GetWMState(MAXIMIZED_HORZ | MAXIMIZED_VERT))
+		window.Maximize(SET);
+
+	xcb_flush(connection);
+}
+
+void WindowManager::GrabTouch(Window &window){
+
+	xcb_void_cookie_t cookie;
+	xcb_generic_error_t *error;
+	
 	const uint32_t mask[] = {XCB_INPUT_XI_EVENT_MASK_TOUCH_BEGIN
 							| XCB_INPUT_XI_EVENT_MASK_TOUCH_UPDATE
 							| XCB_INPUT_XI_EVENT_MASK_TOUCH_END
@@ -300,11 +323,6 @@ void WindowManager::AddWindow(Window &window){
 		free(error);
 	}
 
-	//TODO: Apply any pre-existing maximization here!
-	if (window.GetWMState(MAXIMIZED_HORZ | MAXIMIZED_VERT))
-		window.Maximize(SET);
-
-	xcb_flush(connection);
 }
 
 void WindowManager::OutputError(xcb_generic_error_t &e){
@@ -415,6 +433,10 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 		HandleConfigureRequest(*(xcb_configure_request_event_t*)e);
 		break;
 	}
+	case XCB_EXPOSE:{
+		HandleExpose(*(xcb_expose_event_t*)e);
+		break;
+	}
 	case XCB_CLIENT_MESSAGE:{
 		HandleClientMessage(*(xcb_client_message_event_t*)e);
 		break;
@@ -452,13 +474,19 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 		HandleSelectionClear(*(xcb_selection_clear_event_t*)e);
 		break;
 	}
+	case XCB_DESTROY_NOTIFY:{
+		HandleDestroyNotify(*(xcb_destroy_notify_event_t*)e);
+		break;
+	}
+	case XCB_CONFIGURE_NOTIFY:{
+		HandleConfigureNotify(*(xcb_configure_notify_event_t*)e);
+		break;
+	}
 
 	// currently ignored
 	case XCB_UNMAP_NOTIFY:
-	case XCB_DESTROY_NOTIFY:
 	case XCB_MAP_NOTIFY:
 	case XCB_CREATE_NOTIFY:
-	case XCB_CONFIGURE_NOTIFY:
 		break;
 
 	default:
@@ -472,13 +500,16 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 }
 
 void WindowManager::HandleMapRequest(xcb_map_request_event_t &e){
-	Window window(e.window, e.parent);
-	xcb_void_cookie_t cookie;
-	xcb_generic_error_t *error;
-	cookie = xcb_map_window_checked(connection, e.window);
-	error = xcb_request_check(connection, cookie);
-	AddWindow(window);
-	xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, e.window, XCB_CURRENT_TIME);
+	if (GetWindow(e.window) == NULL){
+		Window window(e.window, e.parent);
+		xcb_void_cookie_t cookie;
+		xcb_generic_error_t *error;
+		cookie = xcb_map_window_checked(connection, e.window);
+		error = xcb_request_check(connection, cookie);
+		AddWindow(window);
+		xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, e.window, XCB_CURRENT_TIME);
+	} else
+		std::cout << "Window already known\n";
 }
 
 void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
@@ -618,6 +649,9 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 
 	touch.push_back(Touch(e.detail, event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
 
+	if (wmMenu && (xcb_window_t)*wmMenu != event)
+		wmMenu->Hide();
+
 	// no accept or reject, additional touches may mean accept,
 	// but so can't reject yet
 	if (touch.size() == 1 && w != touchWindow){
@@ -636,8 +670,19 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 		if (w){
 			w->SetOpacity(OPACITY_TRANSLUCENT);
 			touchWindow = w;
+			if (!wmMenu){
+				Window p(root, root);
+				wmMenu = new WMWindow(p, screens.front(), WMWindow::RADIAL);
+				Window w((xcb_window_t)*wmMenu,0);
+				GrabTouch(w);
+			}
+
+			// show the menu based on the location of the initial
+			// touch, not the newest
+			wmMenu->Show(touch[0].id, touch[0].x, touch[0].y);
 		}
 		AcceptTouch(e);
+		xcb_flush(xcb());
 	}
 	else if (touch.size() == 3 && w){
 		MaximizeWindow(*w, root);
@@ -664,7 +709,14 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 	double y = e.root_y / 65536.0;
 	Touch *t = GetTouch(e.detail);
 
-	if (touch.size() == 1 && touchWindow == NULL){
+	// if moving the menu touch, move the menu
+	if (wmMenu && e.detail == wmMenu->GetID()){
+
+		//std::cout << "Showing window (" << x << "," << y << ")\n";
+		wmMenu->Show(touch[0].id, x, y);
+		xcb_flush(xcb());
+
+	} else if (touch.size() == 1 && touchWindow == NULL){
 		RejectTouch(e);
 		xcb_flush(connection);
 		t->x = x;
@@ -748,11 +800,22 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 
 	Window *w = GetWindow(event);
 
-	if (touch.size() == 0 && moved == false && captureTouch == false){
-		DeselectWindow();
-	} else if (touch.size() == 1 && moved == false && w == touchWindow && captureTouch == false){
+	if (touch.size() == 0){
 
-		/*int r;
+		if (wmMenu){
+			wmMenu->Hide();
+			xcb_flush(xcb());
+		}
+
+		if (moved == false && captureTouch == false)
+			DeselectWindow();
+
+	} else if (touch.size() == 1 && wmMenu && *wmMenu == event){
+
+		wmMenu->Hide();
+		xcb_flush(xcb());
+
+		int r;
 		r = suinput_emit(uinput_fd, EV_KEY, BTN_RIGHT, 1);
 		if (r != -1)
 			r = suinput_emit(uinput_fd, EV_KEY, BTN_RIGHT, 0);
@@ -760,7 +823,7 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 			r = suinput_syn(uinput_fd);
 		if (r == -1)
 			std::cerr << "Error occurred simulating mouse click\n";
-		DeselectWindow();*/
+		DeselectWindow();
 
 	}
 
@@ -785,6 +848,27 @@ void WindowManager::HandleSelectionClear(xcb_selection_clear_event_t &e){
 				break;
 			}
 		}
+	}
+}
+
+void WindowManager::HandleDestroyNotify(xcb_destroy_notify_event_t &e){
+	for (WindowList::iterator itr = windows.begin(); itr != windows.end(); itr++){
+		if (*itr == e.window){
+			windows.erase(itr);
+			break;
+		}
+	}
+}
+
+void WindowManager::HandleConfigureNotify(xcb_configure_notify_event_t &e){
+	if (wmMenu && e.window == *wmMenu){
+		wmMenu->Draw();
+	}
+}
+
+void WindowManager::HandleExpose(xcb_expose_event_t &e){
+	if (wmMenu && e.window == *wmMenu){
+		wmMenu->Draw();
 	}
 }
 

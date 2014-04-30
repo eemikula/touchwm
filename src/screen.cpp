@@ -90,4 +90,26 @@ Screen::Screen(xcb_screen_t *screen, int id){
 		std::cerr << "Error substructure notify\n";
 		free(error);
 	}
+
+	// store visual information
+	xcb_depth_iterator_t di;
+	this->visualType = NULL;
+	this->rgbaColorMap = 0;
+	for (di = xcb_screen_allowed_depths_iterator(this->screen); di.rem && !visualType; xcb_depth_next(&di)){
+		if (di.data->depth == 32){
+			xcb_visualtype_iterator_t vi;
+			for (vi = xcb_depth_visuals_iterator(di.data); vi.rem; xcb_visualtype_next(&vi)){
+				if (vi.data->_class == 4 && di.data->depth == 32)
+					this->visualType = vi.data;
+			}
+		}
+	}
+
+	rgbaColorMap = xcb_generate_id(xcb());
+	xcb_create_colormap(xcb(), XCB_COLORMAP_ALLOC_NONE, rgbaColorMap, GetRoot(), visualType->visual_id);
+
 }
+
+Screen::~Screen(){
+}
+
