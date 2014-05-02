@@ -5,6 +5,8 @@
 #include <cstring>
 #include <iostream>
 
+static const int UNMAXIMIZE_THRESHOLD = 50;
+
 Window::Window(xcb_window_t win, xcb_window_t root){
 	this->connection = WindowSystem::Get();
 	this->window = win;
@@ -129,10 +131,28 @@ std::string Window::GetTitle(){
 }
 
 void Window::Move(int x, int y){
-	uint32_t values[2];
-	this->x = values[0] = x;
-	this->y = values[1] = y;
-	xcb_configure_window(connection, window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y, values);
+
+	uint32_t values[4];
+	uint16_t mask = 0;
+
+	// if only maximized on one axis, allow moving without
+	// de-maximizing, within a threshold
+	if (GetWMState(MAXIMIZED_HORZ) && !GetWMState(MAXIMIZED_VERT) && abs(x-this->x) < UNMAXIMIZE_THRESHOLD){
+		this->y = values[0] = y;
+		mask = XCB_CONFIG_WINDOW_Y;
+	} else if (GetWMState(MAXIMIZED_VERT) && !GetWMState(MAXIMIZED_HORZ) && abs(y-this->y) < UNMAXIMIZE_THRESHOLD){
+		this->x = values[0] = x;
+		mask = XCB_CONFIG_WINDOW_X;
+	} else {
+		this->x = values[0] = x;
+		this->y = values[1] = y;
+		values[2] = width;
+		values[3] = height;
+		mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y
+			| XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+		SetWMState(GetWMState() & ~(MAXIMIZED_HORZ | MAXIMIZED_VERT));
+	}
+	xcb_configure_window(connection, window, mask, values);
 }
 
 void Window::Expand(int width, int height, bool xshift, bool yshift){
@@ -200,17 +220,24 @@ void Window::SetOpacity(double op){
  * 	target: A window object whose geometry will be used as the frame
  *		of reference for maximizing the window
  */
-void Window::Maximize(xcb_window_t target, WMStateChange change){
+void Window::Maximize(xcb_window_t target, WMStateChange change, bool horz, bool vert){
+
 	uint16_t state = wmState;
+	uint16_t setMask = 0;
+	if (horz)
+		setMask |= MAXIMIZED_HORZ;
+	if (vert)
+		setMask |= MAXIMIZED_VERT;
+
 	switch (change){
 	case SET:
-		state |= MAXIMIZED_VERT | MAXIMIZED_HORZ;
+		state |= setMask;
 		break;
 	case CLEAR:
-		state &= ~(MAXIMIZED_VERT | MAXIMIZED_HORZ);
+		state &= ~(setMask);
 		break;
 	case TOGGLE:
-		state ^= MAXIMIZED_VERT | MAXIMIZED_HORZ;
+		state ^= setMask;
 		break;
 	}
 
@@ -220,9 +247,9 @@ void Window::Maximize(xcb_window_t target, WMStateChange change){
 
 	SetWMState(state);
 
+	uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y;
+	uint32_t values[4];
 	if (GetWMState(MAXIMIZED_VERT | MAXIMIZED_HORZ)){
-		uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y;
-		uint32_t values[4];
 		values[0] = 0;
 		values[1] = 0;
 
@@ -236,18 +263,49 @@ void Window::Maximize(xcb_window_t target, WMStateChange change){
 			values[2] = w.width;
 			values[3] = w.height;
 		}
-		xcb_configure_window(connection, window, mask, values);
+	} else if (GetWMState(MAXIMIZED_VERT)){
+		values[0] = x;
+		values[1] = 0;
+
+		// only generate a Window object if it's actually going to be used,
+		// since retrieving its geometry is expensive
+		Window w(target, 0);
+
+		// prevent sending resize unless the window is actually being resized
+		if (this->height != w.height){
+			mask |= XCB_CONFIG_WINDOW_HEIGHT;
+			values[2] = w.height;
+		}
+	} else if (GetWMState(MAXIMIZED_HORZ)){
+		values[0] = 0;
+		values[1] = y;
+
+		// only generate a Window object if it's actually going to be used,
+		// since retrieving its geometry is expensive
+		Window w(target, 0);
+
+		// prevent sending resize unless the window is actually being resized
+		if (this->width != w.width || this->height != w.height){
+			mask |= XCB_CONFIG_WINDOW_WIDTH;
+			values[2] = w.width;
+		}
 	} else {
-		uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y
-				| XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-		uint32_t values[4];
+		mask |= XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
 		values[0] = x;
 		values[1] = y;
 		values[2] = width;
 		values[3] = height;
-		xcb_configure_window(connection, window, mask, values);
 	}
+	xcb_configure_window(connection, window, mask, values);
 	xcb_flush(connection);
+}
+
+/*
+ * This method maximizes the window, using its parent as a target
+ */
+void Window::Maximize(WMStateChange change, bool horz, bool vert){
+	if (root)
+		Maximize(root, change, horz, vert);
 }
 
 /*
@@ -291,10 +349,3 @@ void Window::SetWMState(uint16_t state){
 	}
 }
 
-/*
- * This method maximizes the window, using its parent as a target
- */
-void Window::Maximize(WMStateChange change){
-	if (root)
-		Maximize(root, change);
-}

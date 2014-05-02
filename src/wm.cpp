@@ -178,6 +178,25 @@ ScreenList WindowManager::GetScreens(){
 }
 
 /*
+ * This method gets the Screen object that corresponds to the given root window.
+ *
+ * Parameters:
+ * 	root: The root window used to determine the appropriate screen
+ *
+ * Return value:
+ *
+ */
+Screen *WindowManager::GetScreen(xcb_window_t root){
+
+	for (ScreenList::iterator itr = screens.begin(); itr != screens.end(); itr++){
+		if (root == itr->GetRoot())
+			return &(*itr);
+	}
+	return NULL;
+
+}
+
+/*
  * This method initiates a substructure redirect on the specified screen. This will
  * cause relevant events to be reported to the window manager. This will fail if
  * anything else has already obtained the substructure redirect.
@@ -285,9 +304,10 @@ void WindowManager::AddWindow(Window &window){
 
 	GrabTouch(window);
 
-	//TODO: Apply any pre-existing maximization here!
+	// Apply any pre-existing maximization here
 	if (window.GetWMState(MAXIMIZED_HORZ | MAXIMIZED_VERT))
-		window.Maximize(SET);
+		window.Maximize(SET, window.GetWMState(MAXIMIZED_HORZ),
+				     window.GetWMState(MAXIMIZED_VERT));
 
 	xcb_flush(connection);
 }
@@ -500,12 +520,12 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 }
 
 void WindowManager::HandleMapRequest(xcb_map_request_event_t &e){
+
+	// map the window regardless of whether we know it or not
+	xcb_map_window(connection, e.window);
+
 	if (GetWindow(e.window) == NULL){
 		Window window(e.window, e.parent);
-		xcb_void_cookie_t cookie;
-		xcb_generic_error_t *error;
-		cookie = xcb_map_window_checked(connection, e.window);
-		error = xcb_request_check(connection, cookie);
 		AddWindow(window);
 		xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, e.window, XCB_CURRENT_TIME);
 	} else
@@ -535,16 +555,13 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 
 		switch (e.data.data32[0]){
 		case 0: // remove
-			if (maxVert && maxHorz)
-				w->Maximize(CLEAR);
+			w->Maximize(CLEAR, maxHorz, maxVert);
 			break;
 		case 1: // add
-			if (maxVert && maxHorz)
-				w->Maximize(SET);
+			w->Maximize(SET, maxHorz, maxVert);
 			break;
 		case 2: // toggle
-			if (maxVert && maxHorz)
-				w->Maximize(TOGGLE);
+			w->Maximize(TOGGLE, maxHorz, maxVert);
 			break;
 		default:
 			std::cerr << "Unknown operation " << e.data.data32[0] << "\n";
@@ -671,15 +688,19 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 			w->SetOpacity(OPACITY_TRANSLUCENT);
 			touchWindow = w;
 			if (!wmMenu){
-				Window p(root, root);
-				wmMenu = new WMWindow(p, screens.front(), WMWindow::RADIAL);
-				Window w((xcb_window_t)*wmMenu,0);
-				GrabTouch(w);
+				Screen *s = GetScreen(root);
+				if (s){
+					wmMenu = new WMWindow(*w, *s, WMWindow::RADIAL);
+					GrabTouch(wmMenu->GetWindow());
+				} else {
+					std::cerr << "Unable to find screen\n";
+				}
 			}
 
 			// show the menu based on the location of the initial
 			// touch, not the newest
 			wmMenu->Show(touch[0].id, touch[0].x, touch[0].y);
+			wmMenu->SetTarget(*w);
 		}
 		AcceptTouch(e);
 		xcb_flush(xcb());
@@ -712,11 +733,12 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 	// if moving the menu touch, move the menu
 	if (wmMenu && e.detail == wmMenu->GetID()){
 
-		//std::cout << "Showing window (" << x << "," << y << ")\n";
 		wmMenu->Show(touch[0].id, x, y);
 		xcb_flush(xcb());
 
-	} else if (touch.size() == 1 && touchWindow == NULL){
+	}
+
+	if (touch.size() == 1 && touchWindow == NULL){
 		RejectTouch(e);
 		xcb_flush(connection);
 		t->x = x;
@@ -725,13 +747,13 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 	} else if (touch.size() == 1 && touchWindow != NULL){
 		t->x = x;
 		t->y = y;
-		touchWindow->Maximize(CLEAR);
 		touchWindow->Move(t->x-t->xoff, t->y-t->yoff);
 		xcb_flush(connection);
 		captureTouch = true;
 	} else if (touch.size() == 2){
 		captureTouch = true;
 		Touch *ot = NULL;
+
 		if (&touch[0] == t)
 			ot = &touch[1];
 		else
@@ -741,21 +763,23 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 		int dx = abs(touch[0].x-touch[1].x);
 		int dy = abs(touch[0].y-touch[1].y);
 
-		bool xshift = false, yshift = false;
-		if (x < ot->x)
-			xshift = true;
-		if (y < ot->y)
-			yshift = true;
-
 		// update the touch
 		t->x = x;
 		t->y = y;
 		t->moved = true;
 
+		bool xshift = false, yshift = false;
+		Touch *xanchor = touch[0].x < touch[1].x ? &touch[0] : &touch[1];
+		Touch *yanchor = touch[0].y < touch[1].y ? &touch[0] : &touch[1];
+		if (t == xanchor)
+			xshift = true;
+		if (t == yanchor)
+			yshift = true;
+
 		dx = abs(touch[0].x-touch[1].x)-dx;
 		dy = abs(touch[0].y-touch[1].y)-dy;
 
-		Window *w = GetWindow(t->window);
+		Window *w = GetWindow(touch[1].window);
 		if (w){
 			w->Maximize(CLEAR);
 			w->Expand(dx, dy, xshift, yshift);
@@ -812,18 +836,53 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 
 	} else if (touch.size() == 1 && wmMenu && *wmMenu == event){
 
+		double x = e.event_x / 65536.0;
+		double y = e.event_y / 65536.0;
+		Action action = wmMenu->Click(x,y);
 		wmMenu->Hide();
 		xcb_flush(xcb());
-
-		int r;
-		r = suinput_emit(uinput_fd, EV_KEY, BTN_RIGHT, 1);
-		if (r != -1)
-			r = suinput_emit(uinput_fd, EV_KEY, BTN_RIGHT, 0);
-		if (r != -1)
-			r = suinput_syn(uinput_fd);
-		if (r == -1)
-			std::cerr << "Error occurred simulating mouse click\n";
-		DeselectWindow();
+		switch (action){
+		case RIGHT_CLICK: {
+			std::cout << "Simulated right click\n";
+			int r;
+			r = suinput_emit(uinput_fd, EV_KEY, BTN_RIGHT, 1);
+			if (r != -1)
+				r = suinput_emit(uinput_fd, EV_KEY, BTN_RIGHT, 0);
+			if (r != -1)
+				r = suinput_syn(uinput_fd);
+			if (r == -1)
+				std::cerr << "Error occurred simulating mouse click\n";
+			break;
+		}
+		case CLOSE:
+			std::cout << "Close window\n";
+			break;
+		case HORZ_MAXIMIZE:
+			std::cout << "Horizontal maximize\n";
+			MaximizeWindow(wmMenu->GetTarget(), root, true, false);
+			//DeselectWindow();
+			break;
+		case VERT_MAXIMIZE:
+			std::cout << "Vertical maximize\n";
+			MaximizeWindow(wmMenu->GetTarget(), root, false, true);
+			//DeselectWindow();
+			break;
+		case MAXIMIZE:
+			std::cout << "Maximize\n";
+			MaximizeWindow(wmMenu->GetTarget(), root);
+			DeselectWindow();
+			break;
+		case MINIMIZE:
+			std::cout << "Minimize\n";
+			break;
+		case TOPMOST:
+			std::cout << "Topmost\n";
+			break;
+		default:
+			std::cout << "Unknown action: " << action << "\n";
+			break;
+		}
+		xcb_flush(xcb());
 
 	}
 
@@ -862,7 +921,7 @@ void WindowManager::HandleDestroyNotify(xcb_destroy_notify_event_t &e){
 
 void WindowManager::HandleConfigureNotify(xcb_configure_notify_event_t &e){
 	if (wmMenu && e.window == *wmMenu){
-		wmMenu->Draw();
+		//wmMenu->Draw();
 	}
 }
 
@@ -884,7 +943,7 @@ void WindowManager::HandleExpose(xcb_expose_event_t &e){
  * 	window: the window to maximize
  * 	root: the root window of "window"
  */
-void WindowManager::MaximizeWindow(xcb_window_t window, xcb_window_t root){
+void WindowManager::MaximizeWindow(xcb_window_t window, xcb_window_t root, bool maxHorz, bool maxVert){
 
 	xcb_client_message_event_t event;
 	event.response_type = XCB_CLIENT_MESSAGE;
@@ -893,8 +952,8 @@ void WindowManager::MaximizeWindow(xcb_window_t window, xcb_window_t root){
 	event.window = window;
 	event.type = ewmh()._NET_WM_STATE;
 	event.data.data32[0] = 2L; // 0 = remove, 1 = add, 2 = toggle
-	event.data.data32[1] = ewmh()._NET_WM_STATE_MAXIMIZED_HORZ;
-	event.data.data32[2] = ewmh()._NET_WM_STATE_MAXIMIZED_VERT;
+	event.data.data32[1] = maxHorz ? ewmh()._NET_WM_STATE_MAXIMIZED_HORZ : 0L;
+	event.data.data32[2] = maxVert ? ewmh()._NET_WM_STATE_MAXIMIZED_VERT : 0L;
 	event.data.data32[3] = 0L;
 	event.data.data32[4] = 0L;
 

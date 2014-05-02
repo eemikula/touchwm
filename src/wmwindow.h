@@ -6,6 +6,27 @@
 
 #include <cairo/cairo-xcb.h>
 
+#include <vector>
+
+enum Action {
+	UNKNOWN,
+	RIGHT_CLICK,
+	CLOSE,
+	HORZ_MAXIMIZE,
+	VERT_MAXIMIZE,
+	MAXIMIZE,
+	MINIMIZE,
+	TOPMOST
+};
+
+class WMButton {
+public:
+	char r, g, b;
+	Action action;
+
+private:
+};
+
 class WMWindow{
 public:
 
@@ -19,7 +40,9 @@ public:
 	~WMWindow();
 
 	operator xcb_window_t (){return window;}
-	operator Window& (){return window;}
+	Window &GetWindow(){return window;}
+	void SetTarget(xcb_window_t t){target = t;}
+	xcb_window_t GetTarget(){return target;}
 
 	int GetID(){return id;}
 	bool Visible(){return visible;}
@@ -27,6 +50,7 @@ public:
 	void Hide();
 
 	void Draw();
+	Action Click(int x, int y);
 
 private:
 
@@ -35,10 +59,14 @@ private:
 	int width, height;
 	int id;
 	Window window;
+	xcb_window_t target;
 	Style style;
 	bool visible;
 	cairo_surface_t *surface;
 	cairo_t *cairo;
+
+	typedef std::vector<WMButton> buttonList;
+	buttonList buttons;
 };
 
 #endif
