@@ -77,6 +77,8 @@ private:
 	void SelectWindow(Window &w);
 	void DeselectWindow();
 	void MaximizeWindow(xcb_window_t window, xcb_window_t root, bool maxHorz = true, bool maxVert = true);
+	void CloseWindow(xcb_window_t window, xcb_window_t root);
+	void DeleteWindow(xcb_window_t window);
 	void GrabTouch(Window &w);
 
 	void AcceptTouch(xcb_input_touch_begin_event_t t);

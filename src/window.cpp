@@ -28,31 +28,26 @@ Window::Window(xcb_window_t win, xcb_window_t root){
 	free(r);
 
 	this->wmState = 0;
-	/*xcb_get_property_cookie_t pc = xcb_ewmh_get_wm_state(&ewmh(),window);
-	xcb_ewmh_get_atoms_reply_t atomsr;
-	int i = xcb_ewmh_get_wm_state_reply(&ewmh(),
-                    pc,
-                    &atomsr,
-                    &error);
-	if (error || i != 1){
-		std::cerr << "Error! " << i << "\n";
-	} else {
-		std::cout << "Atoms: " << atomsr.atoms_len << "\n";
-		for (int i = 0; i < atomsr.atoms_len; i++)
-			std::cout << (int)atomsr.atoms[i] << "\n";
-	}*/
-	xcb_get_property_cookie_t pc[2];
-	pc[0] = xcb_get_property_unchecked(connection,
+
+	xcb_get_property_cookie_t pc[3];
+	pc[0] = xcb_get_property_unchecked(xcb(),
 		     0,
 		     window,
 		     ewmh()._NET_WM_STATE,
 		     XCB_ATOM_ATOM,
 		     0,
 		     1024);
-	pc[1] = xcb_get_property_unchecked(connection,
+	pc[1] = xcb_get_property_unchecked(xcb(),
 		     0,
 		     window,
 		     ewmh()._NET_WM_WINDOW_TYPE,
+		     XCB_ATOM_ATOM,
+		     0,
+		     1024);
+	pc[2] = xcb_get_property_unchecked(xcb(),
+		     0,
+		     window,
+		     wmAtoms().WM_PROTOCOLS,
 		     XCB_ATOM_ATOM,
 		     0,
 		     1024);
@@ -72,9 +67,10 @@ Window::Window(xcb_window_t win, xcb_window_t root){
 				if (prop[i] == ewmh()._NET_WM_STATE_MAXIMIZED_VERT)
 					wmState |= MAXIMIZED_VERT;
 			}
-			free(reply);
 		}
 	}
+	if (reply)
+		free(reply);
 
 	reply = xcb_get_property_reply(connection, pc[1], &error);
 	if (error){
@@ -89,9 +85,28 @@ Window::Window(xcb_window_t win, xcb_window_t root){
 				if (prop[i] == ewmh()._NET_WM_WINDOW_TYPE_DESKTOP)
 					type = DESKTOP;
 			}
-			free(reply);
 		}
 	}
+	if (reply)
+		free(reply);
+
+	reply = xcb_get_property_reply(connection, pc[2], &error);
+	if (error){
+		std::cerr << "Error getting wm protocols\n";
+		return;
+	}
+	if (reply && reply->format == 32 && reply->type == XCB_ATOM_ATOM){
+		int length = xcb_get_property_value_length(reply)/sizeof(xcb_atom_t);
+		xcb_atom_t *prop = (xcb_atom_t*)xcb_get_property_value(reply);
+		if (prop){
+			for (int i = 0; i < length; i++){
+				if (prop[i] == wmAtoms().WM_DELETE_WINDOW)
+					supportsDelete = true;
+			}
+		}
+	}
+	if (reply)
+		free(reply);
 
 }
 
@@ -199,16 +214,9 @@ void Window::Configure(uint16_t mask, const uint32_t *values){
 }
 
 void Window::SetOpacity(double op){
-	const char wm_opacity[] = "_NET_WM_WINDOW_OPACITY";
-	xcb_intern_atom_cookie_t cookie;
-
-	cookie = xcb_intern_atom(connection, false, strlen(wm_opacity), wm_opacity);
-	xcb_intern_atom_reply_t *r;
-	r = xcb_intern_atom_reply(connection, cookie, NULL);
-	xcb_atom_t atom_opacity = r->atom;
-
+	
 	uint32_t opacity = op*0xffffffff;
-	xcb_change_property(connection, XCB_PROP_MODE_REPLACE, window, atom_opacity, XCB_ATOM_CARDINAL, 32, sizeof(opacity), &opacity);
+	xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, window, wmAtoms()._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 32, sizeof(opacity), &opacity);
 	xcb_flush(connection);
 
 }

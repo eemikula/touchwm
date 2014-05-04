@@ -59,6 +59,7 @@ public:
 	void Maximize(xcb_window_t target, WMStateChange change, bool horz = true, bool vert = true);
 	uint16_t GetWMState(){return wmState;}
 	bool GetWMState(uint16_t mask){return (wmState & mask) == mask;}
+	bool SupportsDelete(){return supportsDelete;}
 
 	operator xcb_window_t (){return window;}
 	xcb_window_t GetRootWindow(){return root;}
@@ -72,6 +73,7 @@ private:
 	xcb_window_t root;
 	uint16_t wmState;
 	WindowType type;
+	bool supportsDelete;
 
 	void SetWMState(uint16_t state);
 };

@@ -566,6 +566,22 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 		default:
 			std::cerr << "Unknown operation " << e.data.data32[0] << "\n";
 		}
+	} else if (e.type == ewmh()._NET_CLOSE_WINDOW) {
+
+		Window *w = GetWindow(e.window);
+		if (w == NULL)
+			return;
+
+		if (e.format != 32){
+			std::cerr << "Unexpected format: " << e.format << "\n";
+			return;
+		}
+
+		if (w->SupportsDelete()){
+			DeleteWindow(e.window);
+		} else
+			xcb_kill_client(xcb(), e.window);
+
 	} else {
 		xcb_get_atom_name_cookie_t cc = xcb_get_atom_name(connection, e.type);
 		xcb_get_atom_name_reply_t *cr = xcb_get_atom_name_reply(connection, cc, NULL);
@@ -856,6 +872,11 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 		}
 		case CLOSE:
 			std::cout << "Close window\n";
+			CloseWindow(wmMenu->GetTarget(), root);
+
+			// menu no longer has a valid target, so hide and deselect
+			wmMenu->Hide();
+			DeselectWindow();
 			break;
 		case HORZ_MAXIMIZE:
 			std::cout << "Horizontal maximize\n";
@@ -958,11 +979,60 @@ void WindowManager::MaximizeWindow(xcb_window_t window, xcb_window_t root, bool 
 	event.data.data32[4] = 0L;
 
 	// send the event. Note the event mask is derived from source for xcb-ewmh
-	xcb_send_event(connection, false, root, XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT, (const char*)&event);
+	xcb_send_event(xcb(), false, root, XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT, (const char*)&event);
 
 	// flush to make sure the event is processed before the object
 	// goes out of scope
-	xcb_flush(connection);
+	xcb_flush(xcb());
 
 }
 
+/*
+ * This method issues a client message to close a window
+ *
+ * Parameters:
+ * 	window: The window to close
+ */
+void WindowManager::CloseWindow(xcb_window_t window, xcb_window_t root){
+
+	xcb_client_message_event_t event;
+	event.response_type = XCB_CLIENT_MESSAGE;
+	event.format = 32;
+	event.sequence = 0;
+	event.window = window;
+	event.type = ewmh()._NET_CLOSE_WINDOW;
+	event.data.data32[0] = XCB_CURRENT_TIME;
+	event.data.data32[1] = 2L; // source indicator
+	event.data.data32[2] = 0L;
+	event.data.data32[3] = 0L;
+	event.data.data32[4] = 0L;
+
+	// send the event. Note the event mask is derived from source for xcb-ewmh
+	xcb_send_event(xcb(), false, root, XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT, (const char*)&event);
+
+	// flush to make sure the event is processed before the object
+	// goes out of scope
+	xcb_flush(xcb());
+}
+
+void WindowManager::DeleteWindow(xcb_window_t window){
+	std::cout << "DeleteWindow\n";
+	xcb_client_message_event_t event;
+	event.response_type = XCB_CLIENT_MESSAGE;
+	event.format = 32;
+	event.sequence = 0;
+	event.window = window;
+	event.type = wmAtoms().WM_PROTOCOLS;
+	event.data.data32[0] = wmAtoms().WM_DELETE_WINDOW;
+	event.data.data32[1] = 0L;
+	event.data.data32[2] = 0L;
+	event.data.data32[3] = 0L;
+	event.data.data32[4] = 0L;
+
+	// send the event. Note the event mask is derived from source for xcb-ewmh
+	xcb_send_event(xcb(), false, window, XCB_EVENT_MASK_NO_EVENT, (const char*)&event);
+
+	// flush to make sure the event is processed before the object
+	// goes out of scope
+	xcb_flush(xcb());
+}
