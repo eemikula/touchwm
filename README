@@ -11,6 +11,8 @@ in this setting.
 Requirements
 ============
 
+touchwm depends on cairo and librsvg2 for rendering menus.
+
 touchwm depends on the XCB headers, and particularly on its input extensions.
 Note that this may not be provided by default, so xcb may need to be built
 from source and configured with --enable-xinput in order to support this.

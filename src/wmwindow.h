@@ -5,6 +5,7 @@
 #include "screen.h"
 
 #include <cairo/cairo-xcb.h>
+#include <librsvg/rsvg.h>
 
 #include <vector>
 
@@ -17,14 +18,6 @@ enum Action {
 	MAXIMIZE,
 	MINIMIZE,
 	TOPMOST
-};
-
-class WMButton {
-public:
-	char r, g, b;
-	Action action;
-
-private:
 };
 
 class WMWindow{
@@ -53,6 +46,13 @@ public:
 	Action Click(int x, int y);
 
 private:
+
+	struct WMButton {
+		WMButton(char r, char g, char b, Action action, const char *svgFile);
+		char r, g, b;
+		Action action;
+		RsvgHandle *rsvg;
+	};
 
 	Window CreateWindow(Window &parent, Screen &screen, Style s);
 

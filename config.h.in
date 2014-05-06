@@ -3,6 +3,9 @@
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
 
+/* Define to 1 if you have the `librsvg-2.0' library (-llibrsvg-2.0). */
+#undef HAVE_LIBLIBRSVG_2_0
+
 /* Define to 1 if you have the `xcb-util' library (-lxcb-util). */
 #undef HAVE_LIBXCB_UTIL
 
