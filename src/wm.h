@@ -25,7 +25,7 @@ public:
 	ScreenList GetScreens();
 	Screen *GetScreen(xcb_window_t root);
 	bool Redirect(Screen &screen, bool replace);
-	void AddWindow(Window &window);
+	void AddWindow(Window &window, bool focus);
 	xcb_generic_event_t *WaitForEvent();
 	void ListDevices();
 
@@ -63,7 +63,20 @@ private:
 	ScreenList screens;
 	TouchList touch;
 	bool captureTouch;
+
+	/*
+	 * EWMH requires that the window manager maintain both a list of the windows
+	 * being managed, sorted by age, as well as a list of the same windows by stacking
+	 * order. These lists are not directly stored in memory here - they are constructed.
+	 * "topWindows" is a list of all windows marked as "above," "bottomWindows" is a
+	 * list of all windows marked as "below," and "windows" is a list of all other
+	 * windows. Each of these lists is sorted by stacking order, where the front is
+	 * highest, and back is lowest.
+	 */
 	WindowList windows;
+	WindowList topWindows;
+	WindowList bottomWindows;
+
 	Window *clickWindow;
 	Window *touchWindow;
 	int xoff, yoff;
@@ -77,8 +90,10 @@ private:
 	void SelectWindow(Window &w);
 	void DeselectWindow();
 	void MaximizeWindow(xcb_window_t window, xcb_window_t root, bool maxHorz = true, bool maxVert = true);
+	void ChangeWMState(xcb_window_t window, xcb_window_t root, WMStateChange change, WMState state);
 	void CloseWindow(xcb_window_t window, xcb_window_t root);
 	void DeleteWindow(xcb_window_t window);
+	void RaiseWindow(Window &w, bool focus = false);
 	void GrabTouch(Window &w);
 
 	void AcceptTouch(xcb_input_touch_begin_event_t t);

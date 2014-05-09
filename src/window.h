@@ -7,6 +7,7 @@
 #include <xcb/xcb.h>
 
 enum WMState {
+	UNKNOWN = 0,
 	MODAL = 1,
 	STICKY = 1<<1,
 	MAXIMIZED_VERT = 1<<2,
@@ -21,12 +22,15 @@ enum WMState {
 	DEMANDS_ATTENTION = 1<<11
 };
 
+xcb_atom_t GetWMStateAtom(WMState state);
+WMState GetWMState(xcb_atom_t atom);
+
 enum WindowType {
 	DESKTOP, DOCK, TOOLBAR, MENU, UTILITY, SPLASH, DIALOG, NORMAL
 };
 
 enum WMStateChange {
-	SET, CLEAR, TOGGLE
+	CLEAR = 0, SET = 1, TOGGLE = 2
 };
 
 class Window {
@@ -46,6 +50,12 @@ public:
 		this->height = w.height;
 		this->root = w.root;
 		this->type = w.type;
+		this->wmState = w.wmState;
+		this->supportsDelete = w.supportsDelete;
+	}
+
+	bool operator == (const Window &w){
+		return this->window == w.window;
 	}
 
 	std::list<Window> GetChildren();
@@ -57,6 +67,8 @@ public:
 	void SetOpacity(double opacity);
 	void Maximize(WMStateChange change, bool horz = true, bool vert = true);
 	void Maximize(xcb_window_t target, WMStateChange change, bool horz = true, bool vert = true);
+	void Topmost(WMStateChange change);
+	void Minimize(WMStateChange change);
 	uint16_t GetWMState(){return wmState;}
 	bool GetWMState(uint16_t mask){return (wmState & mask) == mask;}
 	bool SupportsDelete(){return supportsDelete;}

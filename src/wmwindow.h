@@ -9,17 +9,6 @@
 
 #include <vector>
 
-enum Action {
-	UNKNOWN,
-	RIGHT_CLICK,
-	CLOSE,
-	HORZ_MAXIMIZE,
-	VERT_MAXIMIZE,
-	MAXIMIZE,
-	MINIMIZE,
-	TOPMOST
-};
-
 class WMWindow{
 public:
 
@@ -27,6 +16,17 @@ public:
 		RADIAL,
 		VERTICAL,
 		HORIZONTAL
+	};
+
+	enum Action {
+		UNKNOWN,
+		RIGHT_CLICK,
+		CLOSE,
+		HORZ_MAXIMIZE,
+		VERT_MAXIMIZE,
+		MAXIMIZE,
+		MINIMIZE,
+		TOPMOST
 	};
 
 	WMWindow(Window &parent, Screen &screen, Style s = RADIAL);

@@ -53,7 +53,7 @@ window(CreateWindow(parent, screen, s)
 	buttons.push_back(vertMaxButton);
 	buttons.push_back(horzMaxButton);
 	//buttons.push_back(minimizeButton);
-	//buttons.push_back(topButton);
+	buttons.push_back(topButton);
 	buttons.push_back(maxButton);
 }
 
@@ -161,7 +161,7 @@ void WMWindow::Draw(){
 	xcb_flush(xcb());
 }
 
-Action WMWindow::Click(int x, int y){
+WMWindow::Action WMWindow::Click(int x, int y){
 
 	int opposite = y - height/2;
 	int adjacent = x - width/2;

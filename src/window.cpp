@@ -64,8 +64,12 @@ Window::Window(xcb_window_t win, xcb_window_t root){
 			for (int i = 0; i < length; i++){
 				if (prop[i] == ewmh()._NET_WM_STATE_MAXIMIZED_HORZ)
 					wmState |= MAXIMIZED_HORZ;
-				if (prop[i] == ewmh()._NET_WM_STATE_MAXIMIZED_VERT)
+				else if (prop[i] == ewmh()._NET_WM_STATE_MAXIMIZED_VERT)
 					wmState |= MAXIMIZED_VERT;
+				else if (prop[i] == ewmh()._NET_WM_STATE_ABOVE)
+					wmState |= ABOVE;
+				else if (prop[i] == ewmh()._NET_WM_STATE_BELOW)
+					wmState |= BELOW;
 			}
 		}
 	}
@@ -196,7 +200,7 @@ void Window::Raise(){
 	}
 
 	// apply focus
-	xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, window, XCB_CURRENT_TIME);
+	//xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, window, XCB_CURRENT_TIME);
 }
 
 void Window::Configure(uint16_t mask, const uint32_t *values){
@@ -316,6 +320,31 @@ void Window::Maximize(WMStateChange change, bool horz, bool vert){
 		Maximize(root, change, horz, vert);
 }
 
+void Window::Topmost(WMStateChange change){
+	uint16_t state = wmState;
+	switch (change){
+	case SET:
+		state |= ABOVE;
+		break;
+	case CLEAR:
+		state &= ~(ABOVE);
+		break;
+	case TOGGLE:
+		state ^= ABOVE;
+		break;
+	}
+
+	// just return if there were no changes
+	if (state == wmState)
+		return;
+
+	SetWMState(state);
+	xcb_flush(connection);
+}
+
+void Window::Minimize(WMStateChange change){
+}
+
 /*
  * This method sets the window's state mask, and applies the relevant atoms to
  * the window's _NET_WM_STATE property, thereby enacting those window states.
@@ -357,3 +386,78 @@ void Window::SetWMState(uint16_t state){
 	}
 }
 
+/*
+ * This method returns the atom that corresponds with a given WMState value.
+ * Note that this does not support multiple values in a bit-mask.
+ *
+ * Parameters:
+ * 	state: the WMState value
+ *
+ * Return value:
+ * 	the atom the indicates the WMState value
+ */
+xcb_atom_t GetWMStateAtom(WMState state){
+	if (state == MODAL)
+		return ewmh()._NET_WM_STATE_MODAL;
+	else if (state == STICKY)
+		return ewmh()._NET_WM_STATE_STICKY;
+	else if (state == MAXIMIZED_VERT)
+		return ewmh()._NET_WM_STATE_MAXIMIZED_VERT;
+	else if (state == MAXIMIZED_HORZ)
+		return ewmh()._NET_WM_STATE_MAXIMIZED_HORZ;
+	else if (state == SHADED)
+		return ewmh()._NET_WM_STATE_SHADED;
+	else if (state == SKIP_TASKBAR)
+		return ewmh()._NET_WM_STATE_SKIP_TASKBAR;
+	else if (state == SKIP_PAGER)
+		return ewmh()._NET_WM_STATE_SKIP_PAGER;
+	else if (state == HIDDEN)
+		return ewmh()._NET_WM_STATE_HIDDEN;
+	else if (state == FULLSCREEN)
+		return ewmh()._NET_WM_STATE_FULLSCREEN;
+	else if (state == ABOVE)
+		return ewmh()._NET_WM_STATE_ABOVE;
+	else if (state == BELOW)
+		return ewmh()._NET_WM_STATE_BELOW;
+	else if (state == DEMANDS_ATTENTION)
+		return ewmh()._NET_WM_STATE_DEMANDS_ATTENTION;
+	return 0;
+}
+
+/*
+ * This method returns the WMState that corresponds with a given WM_STATE atom.
+ * Note that only WM_STATE related atoms are recognized.
+ *
+ * Parameters:
+ * 	atom: the atom to find the WMState for
+ *
+ * Return value:
+ * 	The WMState that corresponds with the given atom
+ */
+WMState GetWMState(xcb_atom_t atom){
+	if (atom == ewmh()._NET_WM_STATE_MODAL)
+		return MODAL;
+	else if (atom == ewmh()._NET_WM_STATE_STICKY)
+		return STICKY;
+	else if (atom == ewmh()._NET_WM_STATE_MAXIMIZED_VERT)
+		return MAXIMIZED_VERT;
+	else if (atom == ewmh()._NET_WM_STATE_MAXIMIZED_HORZ)
+		return MAXIMIZED_HORZ;
+	else if (atom == ewmh()._NET_WM_STATE_SHADED)
+		return SHADED;
+	else if (atom == ewmh()._NET_WM_STATE_SKIP_TASKBAR)
+		return SKIP_TASKBAR;
+	else if (atom == ewmh()._NET_WM_STATE_SKIP_PAGER)
+		return SKIP_PAGER;
+	else if (atom == ewmh()._NET_WM_STATE_HIDDEN)
+		return HIDDEN;
+	else if (atom == ewmh()._NET_WM_STATE_FULLSCREEN)
+		return FULLSCREEN;
+	else if (atom == ewmh()._NET_WM_STATE_ABOVE)
+		return ABOVE;
+	else if (atom == ewmh()._NET_WM_STATE_BELOW)
+		return BELOW;
+	else if (atom == ewmh()._NET_WM_STATE_DEMANDS_ATTENTION)
+		return DEMANDS_ATTENTION;
+	return UNKNOWN;
+}

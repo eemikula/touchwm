@@ -140,8 +140,8 @@ void WindowManager::ListDevices(){
 		std::cerr << "query device error\n";
 		free(error);
 	}
-	if (reply)
-		free(reply);
+	if (!reply)
+		return;
 
 	xcb_input_xi_device_info_iterator_t itr = xcb_input_xi_query_device_infos_iterator(reply);
 	for (; itr.rem; xcb_input_xi_device_info_next(&itr)){
@@ -155,6 +155,7 @@ void WindowManager::ListDevices(){
 				continue;*/
 		}
 	}
+	free(reply);
 }
 
 WindowManager::~WindowManager(){
@@ -264,10 +265,10 @@ bool WindowManager::Redirect(Screen &screen, bool replace){
 	// Manage any existing toplevel windows
 	WindowList topLevel = rootWindow.GetChildren();
 	for (WindowList::iterator itr = topLevel.begin(); itr != topLevel.end(); itr++)
-		AddWindow(*itr);
+		AddWindow(*itr, false);
 
 	// Also manage the root window itself
-	AddWindow(rootWindow);
+	AddWindow(rootWindow, false);
 
 	return true;
 }
@@ -280,10 +281,7 @@ bool WindowManager::Redirect(Screen &screen, bool replace){
  * Parameters:
  * 	window: The window to be managed
  */
-void WindowManager::AddWindow(Window &window){
-
-	// add the window to the list of managed windows
-	windows.push_back(window);
+void WindowManager::AddWindow(Window &window, bool focus){
 
 	xcb_void_cookie_t cookie;
 	xcb_generic_error_t *error;
@@ -308,6 +306,31 @@ void WindowManager::AddWindow(Window &window){
 	if (window.GetWMState(MAXIMIZED_HORZ | MAXIMIZED_VERT))
 		window.Maximize(SET, window.GetWMState(MAXIMIZED_HORZ),
 				     window.GetWMState(MAXIMIZED_VERT));
+
+	// really not sure what to do here. Maybe purge both states?
+	if (window.GetWMState(ABOVE | BELOW))
+		std::cerr << "Window added as both above and below.\n";
+
+	// add the window to the appropriate stack of windows
+
+	if (window.GetWMState(ABOVE)){
+		topWindows.push_front(window);
+		RaiseWindow(window, focus);
+	} else if (window.GetWMState(BELOW)){
+		bottomWindows.push_front(window);
+
+		// call RaiseWindow here to ensure proper stacking against windows
+		// with above or below stacking order. The scope of this call could
+		// be narrowed.
+		RaiseWindow(window, focus);
+	} else {
+		windows.push_front(window);
+
+		// call RaiseWindow here to ensure proper stacking against windows
+		// with above or below stacking order. The scope of this call could
+		// be narrowed.
+		RaiseWindow(window, focus);
+	}
 
 	xcb_flush(connection);
 }
@@ -385,6 +408,12 @@ WindowManager::Touch *WindowManager::GetTouch(unsigned int id){
 Window *WindowManager::GetWindow(xcb_window_t w){
 	Window *win = NULL;
 	for (WindowList::iterator itr = windows.begin(); itr != windows.end(); itr++)
+		if (*itr == w)
+			return &(*itr);
+	for (WindowList::iterator itr = topWindows.begin(); itr != topWindows.end(); itr++)
+		if (*itr == w)
+			return &(*itr);
+	for (WindowList::iterator itr = bottomWindows.begin(); itr != bottomWindows.end(); itr++)
 		if (*itr == w)
 			return &(*itr);
 	return win;
@@ -526,8 +555,7 @@ void WindowManager::HandleMapRequest(xcb_map_request_event_t &e){
 
 	if (GetWindow(e.window) == NULL){
 		Window window(e.window, e.parent);
-		AddWindow(window);
-		xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, e.window, XCB_CURRENT_TIME);
+		AddWindow(window, true);
 	} else
 		std::cout << "Window already known\n";
 }
@@ -553,19 +581,35 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 			|| e.data.data32[2] == ewmh()._NET_WM_STATE_MAXIMIZED_HORZ)
 			maxHorz = true;
 
-		switch (e.data.data32[0]){
-		case 0: // remove
-			w->Maximize(CLEAR, maxHorz, maxVert);
-			break;
-		case 1: // add
-			w->Maximize(SET, maxHorz, maxVert);
-			break;
-		case 2: // toggle
-			w->Maximize(TOGGLE, maxHorz, maxVert);
-			break;
-		default:
-			std::cerr << "Unknown operation " << e.data.data32[0] << "\n";
+		WMStateChange change = (WMStateChange)e.data.data32[0];
+
+		if (maxVert || maxHorz){
+			w->Maximize(change, maxHorz, maxVert);
+		} else if (e.data.data32[1] == ewmh()._NET_WM_STATE_ABOVE){
+			w->Topmost(change);
+			if (w->GetWMState(ABOVE)){
+				//TODO: Efficiency improvements
+				windows.remove(*w);
+				topWindows.remove(*w);
+				bottomWindows.remove(*w);
+				topWindows.push_front(*w);
+			} else if (w->GetWMState(BELOW)){
+				//TODO: Efficiency improvements
+				windows.remove(*w);
+				topWindows.remove(*w);
+				bottomWindows.remove(*w);
+				bottomWindows.push_front(*w);
+			} else {
+				//TODO: Efficiency improvements
+				windows.remove(*w);
+				topWindows.remove(*w);
+				bottomWindows.remove(*w);
+				windows.push_front(*w);
+			}
+		} else {
+			std::cout << "Attempting to change unsupported WM state " << e.data.data32[1] << "\n";
 		}
+
 	} else if (e.type == ewmh()._NET_CLOSE_WINDOW) {
 
 		Window *w = GetWindow(e.window);
@@ -628,7 +672,7 @@ void WindowManager::HandleButtonPress(xcb_button_press_event_t &e){
 	// always raise window on press
 	Window *w = GetWindow(e.event);
 	if (w)
-		w->Raise();
+		RaiseWindow(*w, true);
 
 	// if moving
 	if (e.state & XCB_MOD_MASK_1){
@@ -678,7 +722,7 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 
 	Window *w = GetWindow(event);
 	if (w && captureTouch == false)
-		w->Raise();
+		RaiseWindow(*w, true);
 
 	touch.push_back(Touch(e.detail, event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
 
@@ -724,6 +768,9 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 	else if (touch.size() == 3 && w){
 		MaximizeWindow(*w, root);
 		AcceptTouch(e);
+	}
+	else {
+		xcb_flush(xcb());
 	}
 
 }
@@ -854,11 +901,11 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 
 		double x = e.event_x / 65536.0;
 		double y = e.event_y / 65536.0;
-		Action action = wmMenu->Click(x,y);
+		WMWindow::Action action = wmMenu->Click(x,y);
 		wmMenu->Hide();
 		xcb_flush(xcb());
 		switch (action){
-		case RIGHT_CLICK: {
+		case WMWindow::RIGHT_CLICK: {
 			std::cout << "Simulated right click\n";
 			int r;
 			r = suinput_emit(uinput_fd, EV_KEY, BTN_RIGHT, 1);
@@ -870,7 +917,7 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 				std::cerr << "Error occurred simulating mouse click\n";
 			break;
 		}
-		case CLOSE:
+		case WMWindow::CLOSE:
 			std::cout << "Close window\n";
 			CloseWindow(wmMenu->GetTarget(), root);
 
@@ -878,26 +925,27 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 			wmMenu->Hide();
 			DeselectWindow();
 			break;
-		case HORZ_MAXIMIZE:
+		case WMWindow::HORZ_MAXIMIZE:
 			std::cout << "Horizontal maximize\n";
 			MaximizeWindow(wmMenu->GetTarget(), root, true, false);
 			//DeselectWindow();
 			break;
-		case VERT_MAXIMIZE:
+		case WMWindow::VERT_MAXIMIZE:
 			std::cout << "Vertical maximize\n";
 			MaximizeWindow(wmMenu->GetTarget(), root, false, true);
 			//DeselectWindow();
 			break;
-		case MAXIMIZE:
+		case WMWindow::MAXIMIZE:
 			std::cout << "Maximize\n";
 			MaximizeWindow(wmMenu->GetTarget(), root);
 			DeselectWindow();
 			break;
-		case MINIMIZE:
+		case WMWindow::MINIMIZE:
 			std::cout << "Minimize\n";
 			break;
-		case TOPMOST:
+		case WMWindow::TOPMOST:
 			std::cout << "Topmost\n";
+			ChangeWMState(wmMenu->GetTarget(), root, TOGGLE, ABOVE);
 			break;
 		default:
 			std::cout << "Unknown action: " << action << "\n";
@@ -988,6 +1036,48 @@ void WindowManager::MaximizeWindow(xcb_window_t window, xcb_window_t root, bool 
 }
 
 /*
+ * This method changes the specified WMState value for the specified window,
+ * using extended window manager hints. Note that only a single WMState can be
+ * toggled at a time - bit masks are not supported. It ultimately produces a
+ * CLIENT_MESSAGE event for the window manager. Any associated changes to the
+ * window are managed by the Window object in response to this event.
+ *
+ * Parameters:
+ * 	window: the window whose WMstate is to be changed
+ *	root: the root of the affected window
+	change: the change to apply to the specified state (SET, TOGGLE, CLEAR)
+ *	state: the WMState value to toggle.
+ */
+void WindowManager::ChangeWMState(xcb_window_t window, xcb_window_t root, WMStateChange change, WMState state){
+
+	xcb_atom_t atom = GetWMStateAtom(state);
+	if (!atom){
+		std::cerr << "Attempting to toggle unknown state " << state << "\n";
+		return;
+	}
+
+	xcb_client_message_event_t event;
+	event.response_type = XCB_CLIENT_MESSAGE;
+	event.format = 32;
+	event.sequence = 0;
+	event.window = window;
+	event.type = ewmh()._NET_WM_STATE;
+	event.data.data32[0] = (long)change; // 0 = remove, 1 = add, 2 = toggle
+	event.data.data32[1] = atom;
+	event.data.data32[2] = 0L;
+	event.data.data32[3] = 0L;
+	event.data.data32[4] = 0L;
+
+	// send the event. Note the event mask is derived from source for xcb-ewmh
+	xcb_send_event(xcb(), false, root, XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT, (const char*)&event);
+
+	// flush to make sure the event is processed before the object
+	// goes out of scope
+	xcb_flush(xcb());
+
+}
+
+/*
  * This method issues a client message to close a window
  *
  * Parameters:
@@ -1015,8 +1105,13 @@ void WindowManager::CloseWindow(xcb_window_t window, xcb_window_t root){
 	xcb_flush(xcb());
 }
 
+/*
+ * This method issues a request for a window to destroy itself
+ *
+ * Parameters:
+ * 	window: The window to destroy
+ */
 void WindowManager::DeleteWindow(xcb_window_t window){
-	std::cout << "DeleteWindow\n";
 	xcb_client_message_event_t event;
 	event.response_type = XCB_CLIENT_MESSAGE;
 	event.format = 32;
@@ -1036,3 +1131,74 @@ void WindowManager::DeleteWindow(xcb_window_t window){
 	// goes out of scope
 	xcb_flush(xcb());
 }
+
+/*
+ * This method raises a window to the top of its stack of windows (respecting
+ * above, below, etc)
+ *
+ * Parameters:
+ * 	window: The window to raise
+ */
+void WindowManager::RaiseWindow(Window &w, bool focus){
+	
+	// if this window is "below," only raise it above other below windows
+	if (w.GetWMState(BELOW)){
+
+		Window *sibling = NULL;
+		if (windows.size() > 0)
+			sibling = &windows.back();
+		else if (topWindows.size() > 0)
+			sibling = &topWindows.back();
+
+		if (sibling){
+			uint32_t mask = XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE;
+			uint32_t values[2];
+			values[0] = *sibling;
+			values[1] = XCB_STACK_MODE_BELOW;
+			w.Configure(mask, values);
+
+			// ensure the window is front of the normal windows list
+			//TODO: Efficiency improvements
+			bottomWindows.remove(w);
+			bottomWindows.push_front(w);
+		} else
+			w.Raise();
+
+	// if this window is "above," raise it above other above windows
+	} else if (w.GetWMState(ABOVE)){
+
+		w.Raise();
+
+		//TODO: Efficiency improvements
+		topWindows.remove(w);
+		topWindows.push_front(w);
+
+	// else, only raise it above the lowest "above" window
+	} else {
+
+		// if no windows are marked above, just make this top
+		if (topWindows.size() == 0){
+			w.Raise();
+		} else {
+			// mark this window below the lowest "above" window
+			Window &above = topWindows.back();
+			uint32_t mask = XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE;
+			uint32_t values[2];
+			values[0] = above;
+			values[1] = XCB_STACK_MODE_BELOW;
+			w.Configure(mask, values);
+
+			// ensure the window is front of the normal windows list
+			//TODO: Efficiency improvements
+			windows.remove(w);
+			windows.push_front(w);
+		}
+
+	}
+
+	// regardless of stacking order, set focus
+	if (focus)
+		xcb_set_input_focus(xcb(), XCB_INPUT_FOCUS_POINTER_ROOT, w, XCB_CURRENT_TIME);
+	xcb_flush(xcb());
+}
+
