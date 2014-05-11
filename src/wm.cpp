@@ -14,7 +14,10 @@ Touchscreen Window Manager prototype
 #include <xcb/xcb.h>
 #include <xcb/xinput.h>
 #include <xcb/xcb_ewmh.h>
-#include <xcb/xcb_icccm.h>
+#include <xcb/xcb_keysyms.h>
+
+// taken from X11/keysymdef.h
+#define XK_Tab                           0xff09
 
 #ifdef HAVE_LIBXCB_UTIL
 #include <xcb/xcb_util.h>
@@ -128,6 +131,16 @@ WindowManager::WindowManager(){
 		ewmh()._NET_WM_STATE_MAXIMIZED_HORZ
 	};
 	xcb_ewmh_set_supported(&ewmh(), 0, 3, atoms);*/
+
+	// Store a list of keycodes for keys that are grabbed
+	xcb_key_symbols_t *keysyms = xcb_key_symbols_alloc(xcb());
+	xcb_keycode_t *keycodes = xcb_key_symbols_get_keycode(keysyms, XK_Tab);
+	for (int i = 0; keycodes[i] != XCB_NO_SYMBOL; i++){
+		//TODO: deduplicate
+		tabKeys.push_back(keycodes[i]);
+	}
+	free(keycodes);
+	free(keysyms);
 
 }
 
@@ -301,6 +314,27 @@ void WindowManager::AddWindow(Window &window, bool focus){
 						XCB_MOD_MASK_ANY);
 
 	GrabTouch(window);
+
+	for (KeyList::iterator itr = tabKeys.begin(); itr != tabKeys.end(); itr++){
+
+		// grab alt+tab
+		xcb_grab_key (xcb(), 
+		      XCB_EVENT_MASK_KEY_PRESS,
+		      window,
+		      XCB_MOD_MASK_1,
+		      *itr,
+		      XCB_GRAB_MODE_SYNC,
+		      XCB_GRAB_MODE_ASYNC);
+
+		// grab shift+alt+tab
+		xcb_grab_key (xcb(), 
+		      XCB_EVENT_MASK_KEY_PRESS,
+		      window,
+		      XCB_MOD_MASK_SHIFT | XCB_MOD_MASK_1,
+		      *itr,
+		      XCB_GRAB_MODE_SYNC,
+		      XCB_GRAB_MODE_ASYNC);
+	}
 
 	// Apply any pre-existing maximization here
 	if (window.GetWMState(MAXIMIZED_HORZ | MAXIMIZED_VERT))
@@ -531,6 +565,14 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 		HandleConfigureNotify(*(xcb_configure_notify_event_t*)e);
 		break;
 	}
+	case XCB_KEY_PRESS:{
+		HandleKeyPress(*(xcb_key_press_event_t*)e);
+		break;
+	}
+	case XCB_KEY_RELEASE:{
+		HandleKeyRelease(*(xcb_key_release_event_t*)e);
+		break;
+	}
 
 	// currently ignored
 	case XCB_UNMAP_NOTIFY:
@@ -694,6 +736,15 @@ void WindowManager::HandleButtonRelease(xcb_button_release_event_t &e){
 	xcb_allow_events(connection, XCB_ALLOW_SYNC_POINTER, XCB_CURRENT_TIME);
 	xcb_flush(connection);
 
+}
+
+void WindowManager::HandleKeyPress(xcb_key_press_event_t &e){
+	bool reverse = (e.state & XCB_MOD_MASK_SHIFT) == XCB_MOD_MASK_SHIFT;
+	std::cout << "Press " << (int)e.detail << ", reverse " << reverse << "\n";
+}
+
+void WindowManager::HandleKeyRelease(xcb_key_release_event_t &e){
+	std::cout << "Release " << (int)e.detail << "\n";
 }
 
 void WindowManager::HandleMotion(xcb_motion_notify_event_t &e){
@@ -943,8 +994,11 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 		case WMWindow::MINIMIZE:
 			std::cout << "Minimize\n";
 			break;
-		case WMWindow::TOPMOST:
-			std::cout << "Topmost\n";
+		case WMWindow::BELOW:
+			std::cout << "Below\n";
+			break;
+		case WMWindow::ABOVE:
+			std::cout << "Above\n";
 			ChangeWMState(wmMenu->GetTarget(), root, TOGGLE, ABOVE);
 			break;
 		default:

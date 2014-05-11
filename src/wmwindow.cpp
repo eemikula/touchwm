@@ -44,16 +44,17 @@ window(CreateWindow(parent, screen, s)
 	WMButton closeButton(1, 0, 0, CLOSE, DATA_PATH "/default-theme/close.svg");
 	WMButton vertMaxButton(0, 1, 0, VERT_MAXIMIZE, DATA_PATH "/default-theme/vmax.svg");
 	WMButton horzMaxButton(1, 1, 0, HORZ_MAXIMIZE, DATA_PATH "/default-theme/hmax.svg");
-	WMButton minimizeButton(0, 1, 1, MINIMIZE, DATA_PATH "/default-theme/minimize.svg");
-	WMButton topButton(1, 0, 1, TOPMOST, DATA_PATH "/default-theme/topmost.svg");
 	WMButton maxButton(1, 1, 1, MAXIMIZE, DATA_PATH "/default-theme/max.svg");
+	WMButton minimizeButton(0, 1, 1, MINIMIZE, DATA_PATH "/default-theme/minimize.svg");
+	WMButton belowButton(1, 1, 1, BELOW, DATA_PATH "/default-theme/below.svg");
+	WMButton aboveButton(1, 0, 1, ABOVE, DATA_PATH "/default-theme/topmost.svg");
 
 	buttons.push_back(rightClickButton);
 	buttons.push_back(closeButton);
 	buttons.push_back(vertMaxButton);
 	buttons.push_back(horzMaxButton);
 	//buttons.push_back(minimizeButton);
-	buttons.push_back(topButton);
+	buttons.push_back(aboveButton);
 	buttons.push_back(maxButton);
 }
 

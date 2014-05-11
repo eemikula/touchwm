@@ -6,8 +6,6 @@
 
 #include <xcb/xcb.h>
 #include <linux/uinput.h>
-#include <xcb/xcb_ewmh.h>
-#include <xcb/xcb_icccm.h>
 
 #include "screen.h"
 #include "window.h"
@@ -82,6 +80,9 @@ private:
 	int xoff, yoff;
 	WMWindow *wmMenu;
 
+	typedef std::vector<xcb_keycode_t> KeyList;
+	KeyList tabKeys;
+
 	void OutputError(xcb_generic_error_t &e);
 
 	Touch *GetTouch(unsigned int id);
@@ -105,6 +106,8 @@ private:
 	void HandleConfigureRequest(xcb_configure_request_event_t &e);
 	void HandleButtonPress(xcb_button_press_event_t &e);
 	void HandleButtonRelease(xcb_button_release_event_t &e);
+	void HandleKeyPress(xcb_key_press_event_t &e);
+	void HandleKeyRelease(xcb_key_release_event_t &e);
 	void HandleMotion(xcb_motion_notify_event_t &e);
 	void HandleTouchBegin(xcb_input_touch_begin_event_t &e);
 	void HandleTouchUpdate(xcb_input_touch_update_event_t &e);

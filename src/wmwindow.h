@@ -18,6 +18,7 @@ public:
 		HORIZONTAL
 	};
 
+	// enumeration for menu actions
 	enum Action {
 		UNKNOWN,
 		RIGHT_CLICK,
@@ -26,7 +27,8 @@ public:
 		VERT_MAXIMIZE,
 		MAXIMIZE,
 		MINIMIZE,
-		TOPMOST
+		BELOW,
+		ABOVE
 	};
 
 	WMWindow(Window &parent, Screen &screen, Style s = RADIAL);
