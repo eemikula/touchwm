@@ -41,7 +41,6 @@ public:
 	}
 
 	Window &operator = (const Window &w){
-		this->connection = w.connection;
 		this->window = w.window;
 		this->title = w.title;
 		this->x = w.x;
@@ -52,6 +51,8 @@ public:
 		this->type = w.type;
 		this->wmState = w.wmState;
 		this->supportsDelete = w.supportsDelete;
+		this->visible = w.visible;
+		this->overrideRedirect = w.overrideRedirect;
 	}
 
 	bool operator == (const Window &w){
@@ -60,6 +61,7 @@ public:
 
 	std::list<Window> GetChildren();
 	std::string GetTitle();
+	WindowType GetType(){return type;}
 	void Move(int x, int y);
 	void Expand(int width, int height, bool xshift, bool yshift);
 	void Raise();
@@ -70,15 +72,16 @@ public:
 	void Topmost(WMStateChange change);
 	void Minimize(WMStateChange change);
 	uint16_t GetWMState(){return wmState;}
+
 	bool GetWMState(uint16_t mask){return (wmState & mask) == mask;}
 	bool SupportsDelete(){return supportsDelete;}
+	bool IsVisible(){return visible;}
+	bool OverrideRedirect(){return overrideRedirect;}
 
 	operator xcb_window_t (){return window;}
 	xcb_window_t GetRootWindow(){return root;}
 
 private:
-	xcb_connection_t *connection;
-
 	std::string title;
 	int x, y, width, height;
 	xcb_window_t window;
@@ -86,6 +89,8 @@ private:
 	uint16_t wmState;
 	WindowType type;
 	bool supportsDelete;
+	bool visible;
+	bool overrideRedirect;
 
 	void SetWMState(uint16_t state);
 };

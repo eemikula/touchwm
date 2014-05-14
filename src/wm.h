@@ -25,6 +25,7 @@ public:
 	bool Redirect(Screen &screen, bool replace);
 	void AddWindow(Window &window, bool focus);
 	xcb_generic_event_t *WaitForEvent();
+	xcb_generic_event_t *PollForEvent();
 	void ListDevices();
 
 	void HandleEvent(xcb_generic_event_t *e);
@@ -57,7 +58,6 @@ private:
 	typedef std::vector<Touch> TouchList;
 	typedef std::list<Window> WindowList;
 
-	xcb_connection_t *connection;
 	ScreenList screens;
 	TouchList touch;
 	bool captureTouch;
@@ -95,6 +95,8 @@ private:
 	void CloseWindow(xcb_window_t window, xcb_window_t root);
 	void DeleteWindow(xcb_window_t window);
 	void RaiseWindow(Window &w, bool focus = false);
+	void MoveWindow(Window &w, int x, int y);
+	void ExpandWindow(Window &w, int width, int height, bool xshift, bool yshift);
 	void GrabTouch(Window &w);
 
 	void AcceptTouch(xcb_input_touch_begin_event_t t);

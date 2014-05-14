@@ -65,7 +65,7 @@ Screen::Screen(xcb_screen_t *screen, int id){
 
 	// set _NET_SUPPORTING_WM_CHECK for both WM window and root
 	// TODO: Enable this once it's not actually misleading
-	/*xcb_change_property (xcb(),
+	xcb_change_property (xcb(),
                              XCB_PROP_MODE_REPLACE,
                              wmWindow,
                              ewmh()._NET_SUPPORTING_WM_CHECK,
@@ -80,7 +80,7 @@ Screen::Screen(xcb_screen_t *screen, int id){
                              XCB_ATOM_WINDOW,
                              32,
                              1,
-                             &wmWindow );*/
+                             &wmWindow );
 
 	// select structure notify on the window as a means of handling shutdown
 	const static uint32_t values[] = { XCB_EVENT_MASK_STRUCTURE_NOTIFY };

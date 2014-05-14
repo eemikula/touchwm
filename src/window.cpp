@@ -8,15 +8,14 @@
 static const int UNMAXIMIZE_THRESHOLD = 50;
 
 Window::Window(xcb_window_t win, xcb_window_t root){
-	this->connection = WindowSystem::Get();
 	this->window = win;
 	this->root = root;
 	this->wmState = 0;
 	this->type = NORMAL;
 
 	xcb_generic_error_t *error = NULL;
-	xcb_get_geometry_cookie_t c = xcb_get_geometry(connection, window);
-	xcb_get_geometry_reply_t *r = xcb_get_geometry_reply(connection, c, &error);
+	xcb_get_geometry_cookie_t c = xcb_get_geometry(xcb(), window);
+	xcb_get_geometry_reply_t *r = xcb_get_geometry_reply(xcb(), c, &error);
 	if (error || !r){
 		return;
 	}
@@ -26,6 +25,14 @@ Window::Window(xcb_window_t win, xcb_window_t root){
 	this->width = r->width;
 	this->height = r->height;
 	free(r);
+
+	xcb_get_window_attributes_cookie_t ac = xcb_get_window_attributes(xcb(), window);
+	xcb_get_window_attributes_reply_t *ar = xcb_get_window_attributes_reply(xcb(), ac, NULL);
+	if (ar){
+		this->visible = (ar->map_state != 0);
+		this->overrideRedirect = ar->override_redirect;
+		free(ar);
+	}
 
 	this->wmState = 0;
 
@@ -52,7 +59,7 @@ Window::Window(xcb_window_t win, xcb_window_t root){
 		     0,
 		     1024);
 
-	xcb_get_property_reply_t *reply = xcb_get_property_reply(connection, pc[0], &error);
+	xcb_get_property_reply_t *reply = xcb_get_property_reply(xcb(), pc[0], &error);
 	if (error){
 		std::cerr << "Error getting wm state\n";
 		return;
@@ -76,7 +83,7 @@ Window::Window(xcb_window_t win, xcb_window_t root){
 	if (reply)
 		free(reply);
 
-	reply = xcb_get_property_reply(connection, pc[1], &error);
+	reply = xcb_get_property_reply(xcb(), pc[1], &error);
 	if (error){
 		std::cerr << "Error getting wm window type\n";
 		return;
@@ -88,13 +95,27 @@ Window::Window(xcb_window_t win, xcb_window_t root){
 			for (int i = 0; i < length; i++){
 				if (prop[i] == ewmh()._NET_WM_WINDOW_TYPE_DESKTOP)
 					type = DESKTOP;
+				if (prop[i] == ewmh()._NET_WM_WINDOW_TYPE_DOCK)
+					type = DOCK;
+				if (prop[i] == ewmh()._NET_WM_WINDOW_TYPE_TOOLBAR)
+					type = TOOLBAR;
+				if (prop[i] == ewmh()._NET_WM_WINDOW_TYPE_MENU)
+					type = MENU;
+				if (prop[i] == ewmh()._NET_WM_WINDOW_TYPE_UTILITY)
+					type = UTILITY;
+				if (prop[i] == ewmh()._NET_WM_WINDOW_TYPE_SPLASH)
+					type = SPLASH;
+				if (prop[i] == ewmh()._NET_WM_WINDOW_TYPE_DIALOG)
+					type = DIALOG;
+				else if (prop[i] == ewmh()._NET_WM_WINDOW_TYPE_NORMAL)
+					type = NORMAL;
 			}
 		}
 	}
 	if (reply)
 		free(reply);
 
-	reply = xcb_get_property_reply(connection, pc[2], &error);
+	reply = xcb_get_property_reply(xcb(), pc[2], &error);
 	if (error){
 		std::cerr << "Error getting wm protocols\n";
 		return;
@@ -117,8 +138,8 @@ Window::Window(xcb_window_t win, xcb_window_t root){
 WindowList Window::GetChildren(){
 	WindowList l;
 	xcb_generic_error_t *error;
-	xcb_query_tree_cookie_t cookie = xcb_query_tree(connection, window);
-	xcb_query_tree_reply_t *tree = xcb_query_tree_reply(connection, cookie, &error);
+	xcb_query_tree_cookie_t cookie = xcb_query_tree(xcb(), window);
+	xcb_query_tree_reply_t *tree = xcb_query_tree_reply(xcb(), cookie, &error);
 	if (tree != 0 && error == 0){
 		int len = xcb_query_tree_children_length(tree);
 		xcb_window_t *children = xcb_query_tree_children(tree);
@@ -131,7 +152,7 @@ WindowList Window::GetChildren(){
 
 std::string Window::GetTitle(){
 	if (title.length() == 0){
-		xcb_get_property_cookie_t c = xcb_get_property(connection,
+		xcb_get_property_cookie_t c = xcb_get_property(xcb(),
 		     0,
 		     window,
 		     XCB_ATOM_WM_NAME,
@@ -139,7 +160,7 @@ std::string Window::GetTitle(){
 		     0,
 		     100);
 
-		xcb_get_property_reply_t *reply = xcb_get_property_reply(connection, c, NULL);
+		xcb_get_property_reply_t *reply = xcb_get_property_reply(xcb(), c, NULL);
 		if (reply){
 			char *prop = (char*)xcb_get_property_value(reply);
 			title = prop;
@@ -171,10 +192,11 @@ void Window::Move(int x, int y){
 			| XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
 		SetWMState(GetWMState() & ~(MAXIMIZED_HORZ | MAXIMIZED_VERT));
 	}
-	xcb_configure_window(connection, window, mask, values);
+	xcb_configure_window(xcb(), window, mask, values);
 }
 
 void Window::Expand(int width, int height, bool xshift, bool yshift){
+
 	uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y;
 	uint32_t values[4];
 	this->x = values[0] = xshift ? this->x-width : this->x;
@@ -186,8 +208,8 @@ void Window::Expand(int width, int height, bool xshift, bool yshift){
 		this->width = values[2] = this->width+width;
 		this->height = values[3] = this->height+height;
 	}
-	xcb_configure_window(connection, window, mask, values);
-	xcb_flush(connection);
+	xcb_configure_window(xcb(), window, mask, values);
+	xcb_flush(xcb());
 }
 
 void Window::Raise(){
@@ -196,11 +218,11 @@ void Window::Raise(){
 	if (type != DESKTOP){
 		xcb_void_cookie_t cookie;
 		const static uint32_t values[] = { XCB_STACK_MODE_ABOVE };
-		xcb_configure_window(connection, window, XCB_CONFIG_WINDOW_STACK_MODE, values);
+		xcb_configure_window(xcb(), window, XCB_CONFIG_WINDOW_STACK_MODE, values);
 	}
 
 	// apply focus
-	//xcb_set_input_focus(connection, XCB_INPUT_FOCUS_POINTER_ROOT, window, XCB_CURRENT_TIME);
+	//xcb_set_input_focus(xcb(), XCB_INPUT_FOCUS_POINTER_ROOT, window, XCB_CURRENT_TIME);
 }
 
 void Window::Configure(uint16_t mask, const uint32_t *values){
@@ -213,15 +235,15 @@ void Window::Configure(uint16_t mask, const uint32_t *values){
 		this->width = values[i++];
 	if (mask & XCB_CONFIG_WINDOW_HEIGHT)
 		this->height = values[i++];
-	xcb_configure_window(connection, window, mask, values);
-	xcb_flush(connection);
+	xcb_configure_window(xcb(), window, mask, values);
+	xcb_flush(xcb());
 }
 
 void Window::SetOpacity(double op){
 	
 	uint32_t opacity = op*0xffffffff;
 	xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, window, wmAtoms()._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 32, sizeof(opacity), &opacity);
-	xcb_flush(connection);
+	xcb_flush(xcb());
 
 }
 
@@ -308,8 +330,8 @@ void Window::Maximize(xcb_window_t target, WMStateChange change, bool horz, bool
 		values[2] = width;
 		values[3] = height;
 	}
-	xcb_configure_window(connection, window, mask, values);
-	xcb_flush(connection);
+	xcb_configure_window(xcb(), window, mask, values);
+	xcb_flush(xcb());
 }
 
 /*
@@ -339,7 +361,7 @@ void Window::Topmost(WMStateChange change){
 		return;
 
 	SetWMState(state);
-	xcb_flush(connection);
+	xcb_flush(xcb());
 }
 
 void Window::Minimize(WMStateChange change){
@@ -382,7 +404,7 @@ void Window::SetWMState(uint16_t state){
 			atoms[i++] = ewmh()._NET_WM_STATE_BELOW;
 		if ((wmState & DEMANDS_ATTENTION) == DEMANDS_ATTENTION)
 			atoms[i++] = ewmh()._NET_WM_STATE_DEMANDS_ATTENTION;
-		xcb_change_property(connection, XCB_PROP_MODE_REPLACE, window, ewmh()._NET_WM_STATE, XCB_ATOM_ATOM, 32, i, atoms);
+		xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, window, ewmh()._NET_WM_STATE, XCB_ATOM_ATOM, 32, i, atoms);
 	}
 }
 
@@ -461,3 +483,4 @@ WMState GetWMState(xcb_atom_t atom){
 		return DEMANDS_ATTENTION;
 	return UNKNOWN;
 }
+

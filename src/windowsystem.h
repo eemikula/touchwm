@@ -36,7 +36,7 @@ private:
 };
 
 static inline xcb_connection_t *xcb(){return WindowSystem::Get();}
-static inline const xcb_ewmh_connection_t &ewmh(){return WindowSystem::Get().GetEWMH();}
+static inline xcb_ewmh_connection_t &ewmh(){return WindowSystem::Get().GetEWMH();}
 static inline const WMAtoms &wmAtoms(){return WindowSystem::Get().GetAtoms();}
 
 #endif

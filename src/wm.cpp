@@ -73,6 +73,8 @@ int main(int argc, char* argv[]){
 	}
 
 	while (xcb_generic_event_t *e = wm.WaitForEvent()){
+		if (!e)
+			break;
 		wm.HandleEvent(e);
 		free(e);
 	}
@@ -91,46 +93,43 @@ WindowManager::WindowManager(){
 	memset(&user_dev, 0, sizeof(struct uinput_user_dev));
 	strcpy(user_dev.name, "libsuinput-example-mouse");
 	uinput_fd = suinput_open();
-	if (suinput_enable_event(uinput_fd, EV_REL, REL_X) == -1)
-		std::cerr << "enable x error\n";
-	if (suinput_enable_event(uinput_fd, EV_REL, REL_Y) == -1)
-		std::cerr << "enable y error\n";
-	if (suinput_enable_event(uinput_fd, EV_KEY, BTN_LEFT) == -1)
-		std::cerr << "enable button left error\n";
-	if (suinput_enable_event(uinput_fd, EV_KEY, BTN_RIGHT) == -1)
-		std::cerr << "enable button right error\n";
-	if (suinput_create(uinput_fd, &user_dev) == -1)
-		std::cerr << "Create error\n";
+	if (uinput_fd == 0 ||
+		suinput_enable_event(uinput_fd, EV_REL, REL_X) == -1 ||
+		suinput_enable_event(uinput_fd, EV_REL, REL_Y) == -1 ||
+		suinput_enable_event(uinput_fd, EV_KEY, BTN_LEFT) == -1 ||
+		suinput_enable_event(uinput_fd, EV_KEY, BTN_RIGHT) == -1 ||
+		suinput_create(uinput_fd, &user_dev) == -1)
+			std::cerr << "Error inititializing suinput. Cannot simulate mouse input\n";
 
 	// The window manager shares its connection to the X server with many
 	// other components. To minimize the extent to which this information
 	// must be passed around, it is managed with the singleton WindowSystem
 	// class, which provides shared access to a single instance of the
 	// connection to the X server.
-	connection = WindowSystem::Get();
 	clickWindow = 0;
 	touchWindow = 0;
 	captureTouch = false;
 	wmMenu = NULL;
 
-	if (connection == NULL){
+	if (xcb() == NULL){
 		std::cerr << "Unable to get connection\n";
 		//FIXME: Throw an error here
 		return;
 	}
 
-	xcb_input_xi_query_version_cookie_t c = xcb_input_xi_query_version_unchecked(connection, 2, 2);
-	xcb_input_xi_query_version_reply_t *r = xcb_input_xi_query_version_reply(connection, c, NULL);
+	xcb_input_xi_query_version_cookie_t c = xcb_input_xi_query_version_unchecked(xcb(), 2, 2);
+	xcb_input_xi_query_version_reply_t *r = xcb_input_xi_query_version_reply(xcb(), c, NULL);
 	std::cout << "xcb input version: " << r->major_version << "." << r->minor_version << "\n";
 	if (r)
 		free(r);
 
-	/*xcb_atom_t atoms[] = {
+	xcb_atom_t atoms[] = {
 		ewmh()._NET_WM_STATE,
 		ewmh()._NET_WM_STATE_MAXIMIZED_VERT,
-		ewmh()._NET_WM_STATE_MAXIMIZED_HORZ
+		ewmh()._NET_WM_STATE_MAXIMIZED_HORZ,
+		ewmh()._NET_WM_STATE_ABOVE
 	};
-	xcb_ewmh_set_supported(&ewmh(), 0, 3, atoms);*/
+	xcb_ewmh_set_supported(&ewmh(), 0, 3, atoms);
 
 	// Store a list of keycodes for keys that are grabbed
 	xcb_key_symbols_t *keysyms = xcb_key_symbols_alloc(xcb());
@@ -147,8 +146,8 @@ WindowManager::WindowManager(){
 void WindowManager::ListDevices(){
 
 	xcb_generic_error_t *error;
-	xcb_input_xi_query_device_cookie_t cookie = xcb_input_xi_query_device_unchecked(connection, XCB_INPUT_DEVICE_ALL);
-	xcb_input_xi_query_device_reply_t *reply = xcb_input_xi_query_device_reply(connection, cookie, &error);
+	xcb_input_xi_query_device_cookie_t cookie = xcb_input_xi_query_device_unchecked(xcb(), XCB_INPUT_DEVICE_ALL);
+	xcb_input_xi_query_device_reply_t *reply = xcb_input_xi_query_device_reply(xcb(), cookie, &error);
 	if (error){
 		std::cerr << "query device error\n";
 		free(error);
@@ -180,7 +179,7 @@ ScreenList WindowManager::GetScreens(){
 	if (screens.size())
 		return screens;
 
-	const xcb_setup_t *setup = xcb_get_setup(connection);
+	const xcb_setup_t *setup = xcb_get_setup(xcb());
 	if (setup == NULL)
 		return screens;
 
@@ -220,8 +219,8 @@ Screen *WindowManager::GetScreen(xcb_window_t root){
  */
 bool WindowManager::Redirect(Screen &screen, bool replace){
 
-	xcb_get_selection_owner_cookie_t oc = xcb_get_selection_owner(connection, screen.GetAtom());
-	xcb_get_selection_owner_reply_t *r = xcb_get_selection_owner_reply(connection, oc, NULL);
+	xcb_get_selection_owner_cookie_t oc = xcb_get_selection_owner(xcb(), screen.GetAtom());
+	xcb_get_selection_owner_reply_t *r = xcb_get_selection_owner_reply(xcb(), oc, NULL);
 	xcb_window_t owner = 0;
 	if (r)
 		owner = r->owner;
@@ -230,9 +229,9 @@ bool WindowManager::Redirect(Screen &screen, bool replace){
 	if (replace){
 		if (owner){
 			const static uint32_t values[] = { XCB_EVENT_MASK_STRUCTURE_NOTIFY };
-			xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(connection, owner, XCB_CW_EVENT_MASK, values);
+			xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(xcb(), owner, XCB_CW_EVENT_MASK, values);
 			xcb_generic_error_t *error;
-			if (error = xcb_request_check(connection, cookie)) {
+			if (error = xcb_request_check(xcb(), cookie)) {
 				std::cerr << "Unable to replace running window manager\n";
 				free(error);
 				return false;
@@ -268,17 +267,25 @@ bool WindowManager::Redirect(Screen &screen, bool replace){
 					 | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY
 					 | XCB_EVENT_MASK_STRUCTURE_NOTIFY};
 	Window rootWindow = screen.GetRoot();
-	xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(connection, rootWindow, XCB_CW_EVENT_MASK, values);
+	xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(xcb(), rootWindow, XCB_CW_EVENT_MASK, values);
 	xcb_generic_error_t *error;
-	if (error = xcb_request_check(connection, cookie)) {
+	if (error = xcb_request_check(xcb(), cookie)) {
 		free(error);
 		return false;
 	}
 
 	// Manage any existing toplevel windows
 	WindowList topLevel = rootWindow.GetChildren();
-	for (WindowList::iterator itr = topLevel.begin(); itr != topLevel.end(); itr++)
-		AddWindow(*itr, false);
+	for (WindowList::iterator itr = topLevel.begin(); itr != topLevel.end(); itr++){
+		if ((*itr).OverrideRedirect()){
+			//std::cout << "Skipping override redirect window " << (*itr).GetTitle() << "\n";
+		} else if ((*itr).IsVisible()){
+			//std::cout << "Adding window " << (*itr).GetTitle() << "\n";
+			AddWindow(*itr, false);
+		} else {
+			//std::cout << "Skipping unmapped window " << (*itr).GetTitle() << "\n";
+		}
+	}
 
 	// Also manage the root window itself
 	AddWindow(rootWindow, false);
@@ -296,22 +303,24 @@ bool WindowManager::Redirect(Screen &screen, bool replace){
  */
 void WindowManager::AddWindow(Window &window, bool focus){
 
+	//std::cout << "Window " << (int)(xcb_window_t)window << " type: " << (int)window.GetType() << ": " << window.GetTitle() << "\n";
+
 	xcb_void_cookie_t cookie;
 	xcb_generic_error_t *error;
 
-	xcb_grab_button(connection,
-						false,
-						window,
-						XCB_EVENT_MASK_BUTTON_PRESS |
-						XCB_EVENT_MASK_BUTTON_RELEASE |
-						//XCB_EVENT_MASK_POINTER_MOTION,// |
-						XCB_EVENT_MASK_BUTTON_1_MOTION,
-						XCB_GRAB_MODE_SYNC,
-						XCB_GRAB_MODE_ASYNC,
-						XCB_NONE, XCB_NONE,
-						XCB_BUTTON_INDEX_ANY,
-						//XCB_MOD_MASK_1 | XCB_MOD_MASK_2);
-						XCB_MOD_MASK_ANY);
+	xcb_grab_button(xcb(),
+			false,
+			window,
+			XCB_EVENT_MASK_BUTTON_PRESS |
+			XCB_EVENT_MASK_BUTTON_RELEASE |
+			//XCB_EVENT_MASK_POINTER_MOTION,// |
+			XCB_EVENT_MASK_BUTTON_1_MOTION,
+			XCB_GRAB_MODE_SYNC,
+			XCB_GRAB_MODE_ASYNC,
+			XCB_NONE, XCB_NONE,
+			XCB_BUTTON_INDEX_ANY,
+			//XCB_MOD_MASK_1 | XCB_MOD_MASK_2);
+			XCB_MOD_MASK_ANY);
 
 	GrabTouch(window);
 
@@ -346,7 +355,6 @@ void WindowManager::AddWindow(Window &window, bool focus){
 		std::cerr << "Window added as both above and below.\n";
 
 	// add the window to the appropriate stack of windows
-
 	if (window.GetWMState(ABOVE)){
 		topWindows.push_front(window);
 		RaiseWindow(window, focus);
@@ -366,7 +374,21 @@ void WindowManager::AddWindow(Window &window, bool focus){
 		RaiseWindow(window, focus);
 	}
 
-	xcb_flush(connection);
+	// Add window to client list
+	//xcb_window_t w = window;
+	//xcb_change_property(xcb(), XCB_PROP_MODE_APPEND, window.GetRootWindow(), ewmh()._NET_CLIENT_LIST, XCB_ATOM_WINDOW, 32, 1, &w);
+	int size = windows.size() + topWindows.size() + bottomWindows.size();
+	xcb_window_t *w = new xcb_window_t[size];
+	int i = 0;
+	for (WindowList::iterator itr = windows.begin(); itr != windows.end(); itr++)
+		w[i++] = *itr;
+	for (WindowList::iterator itr = topWindows.begin(); itr != topWindows.end(); itr++)
+		w[i++] = *itr;
+	for (WindowList::iterator itr = bottomWindows.begin(); itr != bottomWindows.end(); itr++)
+		w[i++] = *itr;
+	xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, window.GetRootWindow(), ewmh()._NET_CLIENT_LIST, XCB_ATOM_WINDOW, 32, size, w);
+
+	xcb_flush(xcb());
 }
 
 void WindowManager::GrabTouch(Window &window){
@@ -380,7 +402,7 @@ void WindowManager::GrabTouch(Window &window){
 	};
 	const uint32_t modifiers[] = {XCB_INPUT_MODIFIER_MASK_ANY};
 	xcb_input_xi_passive_grab_device_cookie_t c = xcb_input_xi_passive_grab_device(
-			connection,
+			xcb(),
 			XCB_CURRENT_TIME,
 			window,
 			XCB_CURSOR_NONE,
@@ -394,7 +416,7 @@ void WindowManager::GrabTouch(Window &window){
 			XCB_INPUT_GRAB_OWNER_NO_OWNER,
 			mask,
 			modifiers);
-	xcb_input_xi_passive_grab_device_reply_t *r = xcb_input_xi_passive_grab_device_reply(connection, c, &error);
+	xcb_input_xi_passive_grab_device_reply_t *r = xcb_input_xi_passive_grab_device_reply(xcb(), c, &error);
 	if (error){
 		OutputError(*error);
 		free(error);
@@ -470,8 +492,8 @@ void WindowManager::DeselectWindow(){
 void WindowManager::AcceptTouch(xcb_input_touch_begin_event_t e){
 	Touch *t = GetTouch(e.detail);
 	if (!t || t->unaccepted == true){
-		xcb_input_xi_allow_events(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_ACCEPT_TOUCH, e.detail, e.event);	
-		xcb_flush(connection);
+		xcb_input_xi_allow_events(xcb(), XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_ACCEPT_TOUCH, e.detail, e.event);	
+		xcb_flush(xcb());
 	}
 	if (t)
 		t->unaccepted = false;
@@ -480,8 +502,8 @@ void WindowManager::AcceptTouch(xcb_input_touch_begin_event_t e){
 void WindowManager::RejectTouch(xcb_input_touch_begin_event_t e){
 	Touch *t = GetTouch(e.detail);
 	if (!t || t->unaccepted == true){
-		xcb_input_xi_allow_events_checked(connection, XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
-		xcb_flush(connection);
+		xcb_input_xi_allow_events_checked(xcb(), XCB_CURRENT_TIME, e.deviceid, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, e.detail, e.event);
+		xcb_flush(xcb());
 	}
 	if (t)
 		t->unaccepted = false;
@@ -494,7 +516,18 @@ void WindowManager::RejectTouch(xcb_input_touch_begin_event_t e){
 xcb_generic_event_t *WindowManager::WaitForEvent(){
 	if (screens.size() == 0)
 		return NULL;
-	return xcb_wait_for_event(connection);
+	return xcb_wait_for_event(xcb());
+}
+
+/*
+ * This method returns the next event, if available, without blocking.
+ * Note that if the window manager is no longer controlling any screens,
+ * it will instead return NULL.
+ */
+xcb_generic_event_t *WindowManager::PollForEvent(){
+	if (screens.size() == 0)
+		return NULL;
+	return xcb_poll_for_event(xcb());
 }
 
 void WindowManager::HandleEvent(xcb_generic_event_t *e){
@@ -593,13 +626,12 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 void WindowManager::HandleMapRequest(xcb_map_request_event_t &e){
 
 	// map the window regardless of whether we know it or not
-	xcb_map_window(connection, e.window);
+	xcb_map_window(xcb(), e.window);
 
 	if (GetWindow(e.window) == NULL){
 		Window window(e.window, e.parent);
 		AddWindow(window, true);
-	} else
-		std::cout << "Window already known\n";
+	}
 }
 
 void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
@@ -669,8 +701,8 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 			xcb_kill_client(xcb(), e.window);
 
 	} else {
-		xcb_get_atom_name_cookie_t cc = xcb_get_atom_name(connection, e.type);
-		xcb_get_atom_name_reply_t *cr = xcb_get_atom_name_reply(connection, cc, NULL);
+		xcb_get_atom_name_cookie_t cc = xcb_get_atom_name(xcb(), e.type);
+		xcb_get_atom_name_reply_t *cr = xcb_get_atom_name_reply(xcb(), cc, NULL);
 		std::cout << "\tname: " << xcb_get_atom_name_name(cr) << "\n";
 		std::cout << "\tevent.data.data32[0] = " << e.data.data32[0] << "\n";
 		std::cout << "\tevent.data.data32[1] = " << e.data.data32[1] << "\n";
@@ -702,9 +734,9 @@ void WindowManager::HandleConfigureRequest(xcb_configure_request_event_t &e){
 }
 
 void WindowManager::SendEvent(xcb_window_t window, xcb_generic_event_t &event, xcb_event_mask_t mask){
-	xcb_void_cookie_t cookie = xcb_send_event_checked(connection, false, window, mask, (char*)&event);
-	xcb_request_check(connection, cookie);
-	xcb_flush(connection);
+	xcb_void_cookie_t cookie = xcb_send_event_checked(xcb(), false, window, mask, (char*)&event);
+	xcb_request_check(xcb(), cookie);
+	xcb_flush(xcb());
 }
 
 void WindowManager::HandleButtonPress(xcb_button_press_event_t &e){
@@ -721,20 +753,20 @@ void WindowManager::HandleButtonPress(xcb_button_press_event_t &e){
 		xoff = e.event_x;
 		yoff = e.event_y;
 		clickWindow = GetWindow(e.event);
-		xcb_allow_events(connection, XCB_ALLOW_SYNC_POINTER, XCB_CURRENT_TIME);
-		xcb_flush(connection);
+		xcb_allow_events(xcb(), XCB_ALLOW_SYNC_POINTER, XCB_CURRENT_TIME);
+		xcb_flush(xcb());
 	} else {
-		xcb_allow_events(connection, XCB_ALLOW_REPLAY_POINTER, XCB_CURRENT_TIME);
-		xcb_flush(connection);
+		xcb_allow_events(xcb(), XCB_ALLOW_REPLAY_POINTER, XCB_CURRENT_TIME);
+		xcb_flush(xcb());
 	}
 }
 
 void WindowManager::HandleButtonRelease(xcb_button_release_event_t &e){
 
 	clickWindow = 0;
-	xcb_flush(connection);
-	xcb_allow_events(connection, XCB_ALLOW_SYNC_POINTER, XCB_CURRENT_TIME);
-	xcb_flush(connection);
+	xcb_flush(xcb());
+	xcb_allow_events(xcb(), XCB_ALLOW_SYNC_POINTER, XCB_CURRENT_TIME);
+	xcb_flush(xcb());
 
 }
 
@@ -749,12 +781,12 @@ void WindowManager::HandleKeyRelease(xcb_key_release_event_t &e){
 
 void WindowManager::HandleMotion(xcb_motion_notify_event_t &e){
 
-	xcb_allow_events(connection, XCB_ALLOW_SYNC_POINTER, XCB_CURRENT_TIME);
-	xcb_flush(connection);
+	xcb_allow_events(xcb(), XCB_ALLOW_SYNC_POINTER, XCB_CURRENT_TIME);
+	xcb_flush(xcb());
 
 	if (clickWindow){
 		int x = e.root_x-xoff, y = e.root_y-yoff;
-		clickWindow->Move(e.root_x-xoff, e.root_y-yoff);
+		MoveWindow(*clickWindow, e.root_x-xoff, e.root_y-yoff);
 	}
 }
 
@@ -767,7 +799,7 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 			DeselectWindow();
 		captureTouch = false;
 		RejectTouch(e);
-		xcb_flush(connection);
+		xcb_flush(xcb());
 		return;
 	}
 
@@ -836,7 +868,7 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 			DeselectWindow();
 		captureTouch = false;
 		RejectTouch(e);
-		xcb_flush(connection);
+		xcb_flush(xcb());
 		return;
 	}
 
@@ -854,15 +886,15 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 
 	if (touch.size() == 1 && touchWindow == NULL){
 		RejectTouch(e);
-		xcb_flush(connection);
+		xcb_flush(xcb());
 		t->x = x;
 		t->y = y;
 		t->moved = true;
 	} else if (touch.size() == 1 && touchWindow != NULL){
 		t->x = x;
 		t->y = y;
-		touchWindow->Move(t->x-t->xoff, t->y-t->yoff);
-		xcb_flush(connection);
+		MoveWindow(*touchWindow, t->x-t->xoff, t->y-t->yoff);
+		xcb_flush(xcb());
 		captureTouch = true;
 	} else if (touch.size() == 2){
 		captureTouch = true;
@@ -894,10 +926,8 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 		dy = abs(touch[0].y-touch[1].y)-dy;
 
 		Window *w = GetWindow(touch[1].window);
-		if (w){
-			w->Maximize(CLEAR);
-			w->Expand(dx, dy, xshift, yshift);
-		}
+		if (w)
+			ExpandWindow(*w, dx, dy, xshift, yshift);
 
 	} else {
 		t->x = x;
@@ -922,7 +952,7 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 
 	if (!touchWindow){
 		RejectTouch(e);
-		//xcb_flush(connection);
+		//xcb_flush(xcb());
 	} else {
 		AcceptTouch(e);
 	}
@@ -1254,5 +1284,38 @@ void WindowManager::RaiseWindow(Window &w, bool focus){
 	if (focus)
 		xcb_set_input_focus(xcb(), XCB_INPUT_FOCUS_POINTER_ROOT, w, XCB_CURRENT_TIME);
 	xcb_flush(xcb());
+}
+
+/*
+ * This method determines if a window should be moved, and if so, moves it
+ *
+ * Parameters:
+ * 	w: The window to move
+ * 	x: the amount to move the window on the x axis, relative to current position
+ * 	y: the amount to move the window on the y axis, relative to current position
+ */
+void WindowManager::MoveWindow(Window &w, int x, int y){
+	if (w.GetType() != DESKTOP){
+		w.Move(x, y);
+	}
+}
+
+/*
+ *
+ *
+ * Parameters:
+ * 	w: The window to expand
+ * 	width: The desired width of the window
+ * 	height: The desired height of the window
+ * 	xshift: boolean determining whether the window should move on the
+ * 		x axis to account for the corresponding change in width
+ * 	yshift: boolean determining whether the window should move on the
+ * 		y axis to account for the corresponding change in height
+ */
+void WindowManager::ExpandWindow(Window &w, int width, int height, bool xshift, bool yshift){
+	if (w.GetType() != DESKTOP){
+		w.Maximize(CLEAR);
+		w.Expand(width, height, xshift, yshift);
+	}
 }
 
