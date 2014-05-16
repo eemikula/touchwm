@@ -35,7 +35,7 @@ enum WMStateChange {
 
 class Window {
 public:
-	Window(xcb_window_t win, xcb_window_t root);
+	Window(xcb_window_t win);
 	Window(const Window &w){
 		*this = w;
 	}
@@ -78,7 +78,7 @@ public:
 	bool IsVisible(){return visible;}
 	bool OverrideRedirect(){return overrideRedirect;}
 
-	operator xcb_window_t (){return window;}
+	xcb_window_t GetWindow(){return window;}
 	xcb_window_t GetRootWindow(){return root;}
 
 private:

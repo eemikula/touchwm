@@ -18,7 +18,7 @@ public:
 		this->rgbaColorMap = s.rgbaColorMap;
 	}
 
-	Window GetRoot(){return Window(screen->root,screen->root);}
+	xcb_window_t GetRoot(){return screen->root;}
 	xcb_window_t GetWindow(){return wmWindow;}
 	xcb_atom_t GetAtom(){return atom;}
 	xcb_visualtype_t *GetVisualType(){return visualType;}

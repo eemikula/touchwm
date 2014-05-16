@@ -30,7 +30,7 @@ window(CreateWindow(parent, screen, s)
 	this->style = s;
 	this->visible = false;
 	this->surface = cairo_xcb_surface_create(xcb(),
-				window,
+				window.GetWindow(),
 				screen.GetVisualType(),
 				width,
 				height);
@@ -79,7 +79,7 @@ Window WMWindow::CreateWindow(Window &parent, Screen &screen, Style s){
 			XCB_WINDOW_CLASS_INPUT_OUTPUT, visual->visual_id,
 			XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP, values);
 
-	return Window(w, parent);
+	return Window(w);
 }
 
 void WMWindow::Show(int id, int x, int y){
@@ -88,15 +88,16 @@ void WMWindow::Show(int id, int x, int y){
 	values[0] = x - (width/2);
 	values[1] = y - (height/2);
 	values[2] = XCB_STACK_MODE_ABOVE;
-	xcb_configure_window(xcb(), window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_STACK_MODE, values);
-	xcb_map_window(xcb(), window);
+	xcb_configure_window(xcb(), window.GetWindow(), XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_STACK_MODE, values);
+	xcb_map_window(xcb(), window.GetWindow());
 	visible = true;
 }
 
 void WMWindow::Hide(){
 	if (visible){
-		xcb_unmap_window(xcb(), window);
+		xcb_unmap_window(xcb(), window.GetWindow());
 		visible = false;
+		id = 0;
 	}
 }
 

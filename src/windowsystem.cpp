@@ -26,10 +26,12 @@ WindowSystem::WindowSystem(){
 	const char wm_opacity[] = "_NET_WM_WINDOW_OPACITY";
 	const char wm_protocols[] = "WM_PROTOCOLS";
 	const char wm_delete_window[] = "WM_DELETE_WINDOW";
-	xcb_intern_atom_cookie_t c[3];
+	const char wm_state[] = "WM_STATE";
+	xcb_intern_atom_cookie_t c[4];
 	c[0] = xcb_intern_atom(xcb, false, strlen(wm_protocols), wm_protocols);
 	c[1] = xcb_intern_atom(xcb, false, strlen(wm_delete_window), wm_delete_window);
 	c[2] = xcb_intern_atom(xcb, false, strlen(wm_opacity), wm_opacity);
+	c[3] = xcb_intern_atom(xcb, false, strlen(wm_state), wm_state);
 
 	xcb_intern_atom_reply_t *ar;
 	ar = xcb_intern_atom_reply(xcb, c[0], NULL);
@@ -41,6 +43,8 @@ WindowSystem::WindowSystem(){
 	ar = xcb_intern_atom_reply(xcb, c[2], NULL);
 	atoms._NET_WM_WINDOW_OPACITY = ar->atom;
 	free(ar);
+	ar = xcb_intern_atom_reply(xcb, c[3], NULL);
+	atoms.WM_STATE = ar->atom;
 
 }
 

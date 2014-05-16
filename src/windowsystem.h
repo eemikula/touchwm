@@ -11,6 +11,7 @@
 struct WMAtoms {
 	xcb_atom_t WM_PROTOCOLS;
 	xcb_atom_t WM_DELETE_WINDOW;
+	xcb_atom_t WM_STATE;
 	xcb_atom_t _NET_WM_WINDOW_OPACITY;
 };
 

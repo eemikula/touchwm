@@ -7,9 +7,8 @@
 
 static const int UNMAXIMIZE_THRESHOLD = 50;
 
-Window::Window(xcb_window_t win, xcb_window_t root){
+Window::Window(xcb_window_t win){
 	this->window = win;
-	this->root = root;
 	this->wmState = 0;
 	this->type = NORMAL;
 
@@ -20,6 +19,7 @@ Window::Window(xcb_window_t win, xcb_window_t root){
 		return;
 	}
 
+	this->root = r->root;
 	this->x = r->x;
 	this->y = r->y;
 	this->width = r->width;
@@ -144,7 +144,7 @@ WindowList Window::GetChildren(){
 		int len = xcb_query_tree_children_length(tree);
 		xcb_window_t *children = xcb_query_tree_children(tree);
 		for (int i = 0; i < len; i++)
-			l.push_back(Window(children[i],window));
+			l.push_back(Window(children[i]));
 		free(tree);
 	}
 	return l;
@@ -289,7 +289,7 @@ void Window::Maximize(xcb_window_t target, WMStateChange change, bool horz, bool
 
 		// only generate a Window object if it's actually going to be used,
 		// since retrieving its geometry is expensive
-		Window w(target, 0);
+		Window w(target);
 
 		// prevent sending resize unless the window is actually being resized
 		if (this->width != w.width || this->height != w.height){
@@ -303,7 +303,7 @@ void Window::Maximize(xcb_window_t target, WMStateChange change, bool horz, bool
 
 		// only generate a Window object if it's actually going to be used,
 		// since retrieving its geometry is expensive
-		Window w(target, 0);
+		Window w(target);
 
 		// prevent sending resize unless the window is actually being resized
 		if (this->height != w.height){
@@ -316,7 +316,7 @@ void Window::Maximize(xcb_window_t target, WMStateChange change, bool horz, bool
 
 		// only generate a Window object if it's actually going to be used,
 		// since retrieving its geometry is expensive
-		Window w(target, 0);
+		Window w(target);
 
 		// prevent sending resize unless the window is actually being resized
 		if (this->width != w.width || this->height != w.height){

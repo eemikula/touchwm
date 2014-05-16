@@ -34,7 +34,7 @@ public:
 	WMWindow(Window &parent, Screen &screen, Style s = RADIAL);
 	~WMWindow();
 
-	operator xcb_window_t (){return window;}
+	xcb_window_t GetNativeWindow(){return window.GetWindow();}
 	Window &GetWindow(){return window;}
 	void SetTarget(xcb_window_t t){target = t;}
 	xcb_window_t GetTarget(){return target;}

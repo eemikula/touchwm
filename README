@@ -11,18 +11,19 @@ in this setting.
 Requirements
 ============
 
-touchwm depends on cairo and librsvg2 for rendering menus.
+Dependencies include xcb, xcb-xinput, xcb-util, xcb-ewmh, xcb-keysyms,
+cairo, and librsvg2. 
 
-touchwm depends on the XCB headers, and particularly on its input extensions.
-Note that this may not be provided by default, so xcb may need to be built
-from source and configured with --enable-xinput in order to support this.
-Ensure that LD_LIBRARY_PATH and PKG_CONFIG_PATH point to the correct places.
-
-Additionally, in order to translate some touch events into mouse events,
-touchwm depends on the libsuinput library. Using this library comes with some
-setup requirements. Specifically, udev rules need to be configured, and any
-users need to be added to the appropriate group. Finally, ensure the uinput
-kernel module is loaded correctly.
+xcb-xinput is experimental and not enabled by default, and may need to be
+built from source. This can be done by building xcb according to the steps
+described at http://xcb.freedesktop.org/DevelopersGuide and specifying the
+--enable-xinput option on configure. Additionally, in order to translate some
+touch events into mouse events, touchwm depends on the libsuinput library,
+which also will likely need to be built from source, instructions for which
+can be found at http://tjjr.fi/sw/libsuinput/#download-and-install
+Using this library comes with some setup requirements. Specifically, udev
+rules need to be configured, and any users need to be added to the appropriate
+group. Finally, ensure the uinput kernel module is loaded correctly.
 
 The easiest way to do this is:
 

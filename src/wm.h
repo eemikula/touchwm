@@ -74,6 +74,7 @@ private:
 	WindowList windows;
 	WindowList topWindows;
 	WindowList bottomWindows;
+	WindowList allWindows;
 
 	Window *clickWindow;
 	Window *touchWindow;
@@ -88,6 +89,7 @@ private:
 	Touch *GetTouch(unsigned int id);
 	Window *GetWindow(xcb_window_t w);
 
+	void UpdateClientLists(xcb_window_t root);
 	void SelectWindow(Window &w);
 	void DeselectWindow();
 	void MaximizeWindow(xcb_window_t window, xcb_window_t root, bool maxHorz = true, bool maxVert = true);
@@ -98,6 +100,7 @@ private:
 	void MoveWindow(Window &w, int x, int y);
 	void ExpandWindow(Window &w, int width, int height, bool xshift, bool yshift);
 	void GrabTouch(Window &w);
+	void ActiveGrabTouch(Window &w);
 
 	void AcceptTouch(xcb_input_touch_begin_event_t t);
 	void RejectTouch(xcb_input_touch_begin_event_t t);

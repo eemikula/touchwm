@@ -267,7 +267,7 @@ bool WindowManager::Redirect(Screen &screen, bool replace){
 					 | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY
 					 | XCB_EVENT_MASK_STRUCTURE_NOTIFY};
 	Window rootWindow = screen.GetRoot();
-	xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(xcb(), rootWindow, XCB_CW_EVENT_MASK, values);
+	xcb_void_cookie_t cookie = xcb_change_window_attributes_checked(xcb(), rootWindow.GetWindow(), XCB_CW_EVENT_MASK, values);
 	xcb_generic_error_t *error;
 	if (error = xcb_request_check(xcb(), cookie)) {
 		free(error);
@@ -303,14 +303,12 @@ bool WindowManager::Redirect(Screen &screen, bool replace){
  */
 void WindowManager::AddWindow(Window &window, bool focus){
 
-	//std::cout << "Window " << (int)(xcb_window_t)window << " type: " << (int)window.GetType() << ": " << window.GetTitle() << "\n";
-
 	xcb_void_cookie_t cookie;
 	xcb_generic_error_t *error;
 
 	xcb_grab_button(xcb(),
 			false,
-			window,
+			window.GetWindow(),
 			XCB_EVENT_MASK_BUTTON_PRESS |
 			XCB_EVENT_MASK_BUTTON_RELEASE |
 			//XCB_EVENT_MASK_POINTER_MOTION,// |
@@ -329,7 +327,7 @@ void WindowManager::AddWindow(Window &window, bool focus){
 		// grab alt+tab
 		xcb_grab_key (xcb(), 
 		      XCB_EVENT_MASK_KEY_PRESS,
-		      window,
+		      window.GetWindow(),
 		      XCB_MOD_MASK_1,
 		      *itr,
 		      XCB_GRAB_MODE_SYNC,
@@ -338,12 +336,18 @@ void WindowManager::AddWindow(Window &window, bool focus){
 		// grab shift+alt+tab
 		xcb_grab_key (xcb(), 
 		      XCB_EVENT_MASK_KEY_PRESS,
-		      window,
+		      window.GetWindow(),
 		      XCB_MOD_MASK_SHIFT | XCB_MOD_MASK_1,
 		      *itr,
 		      XCB_GRAB_MODE_SYNC,
 		      XCB_GRAB_MODE_ASYNC);
 	}
+
+	// if window is root, skip all further processing
+	if (!window.GetRootWindow() || window.GetRootWindow() == window.GetWindow())
+		return;
+
+	allWindows.push_back(window);
 
 	// Apply any pre-existing maximization here
 	if (window.GetWMState(MAXIMIZED_HORZ | MAXIMIZED_VERT))
@@ -374,21 +378,57 @@ void WindowManager::AddWindow(Window &window, bool focus){
 		RaiseWindow(window, focus);
 	}
 
-	// Add window to client list
-	//xcb_window_t w = window;
-	//xcb_change_property(xcb(), XCB_PROP_MODE_APPEND, window.GetRootWindow(), ewmh()._NET_CLIENT_LIST, XCB_ATOM_WINDOW, 32, 1, &w);
-	int size = windows.size() + topWindows.size() + bottomWindows.size();
-	xcb_window_t *w = new xcb_window_t[size];
-	int i = 0;
-	for (WindowList::iterator itr = windows.begin(); itr != windows.end(); itr++)
-		w[i++] = *itr;
-	for (WindowList::iterator itr = topWindows.begin(); itr != topWindows.end(); itr++)
-		w[i++] = *itr;
-	for (WindowList::iterator itr = bottomWindows.begin(); itr != bottomWindows.end(); itr++)
-		w[i++] = *itr;
-	xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, window.GetRootWindow(), ewmh()._NET_CLIENT_LIST, XCB_ATOM_WINDOW, 32, size, w);
+	UpdateClientLists(window.GetRootWindow());
+
+	// apply WM_STATE
+	uint32_t state[2];
+	state[0] = 1; // 0 = withdrawn, 1 = normal, 3 = iconic
+	state[1] = 0;
+	xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, window.GetWindow(), wmAtoms().WM_STATE, wmAtoms().WM_STATE, 32, 2, &state);
+
+	xcb_atom_t actions[] = {
+		ewmh()._NET_WM_ACTION_CLOSE,
+		ewmh()._NET_WM_ACTION_MAXIMIZE_HORZ,
+		ewmh()._NET_WM_ACTION_MAXIMIZE_VERT,
+		ewmh()._NET_WM_ACTION_MINIMIZE,
+		ewmh()._NET_WM_ACTION_ABOVE,
+		ewmh()._NET_WM_ACTION_BELOW
+	};
+	xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, window.GetWindow(), ewmh()._NET_WM_ALLOWED_ACTIONS, XCB_ATOM_ATOM, 32, sizeof(actions)/sizeof(xcb_atom_t), actions);
 
 	xcb_flush(xcb());
+}
+
+/*
+ * For purposes of integration with other applications like pagers and taskbars
+ * EWMH specifies two lists for the window manager to maintain. This method
+ * updates both with the currently managed windows
+ */
+void WindowManager::UpdateClientLists(xcb_window_t root){
+
+	// Add window to list of all managed windows
+	int size, i;
+	size = allWindows.size();
+	xcb_window_t *xwindows = new xcb_window_t[size];
+	i = 0;
+	for (WindowList::iterator itr = allWindows.begin(); itr != allWindows.end(); itr++)
+		xwindows[i++] = itr->GetWindow();
+	xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, root, ewmh()._NET_CLIENT_LIST, XCB_ATOM_WINDOW, 32, size, xwindows);
+
+	// also add to list of windows by stacking order
+	size = windows.size() + topWindows.size() + bottomWindows.size();
+	xcb_window_t *stackWindows = new xcb_window_t[size];
+	i = 0;
+	for (WindowList::iterator itr = windows.begin(); itr != windows.end(); itr++)
+		stackWindows[i++] = itr->GetWindow();
+	for (WindowList::iterator itr = topWindows.begin(); itr != topWindows.end(); itr++)
+		stackWindows[i++] = itr->GetWindow();
+	for (WindowList::iterator itr = bottomWindows.begin(); itr != bottomWindows.end(); itr++)
+		stackWindows[i++] = itr->GetWindow();
+	xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, root, ewmh()._NET_CLIENT_LIST_STACKING, XCB_ATOM_WINDOW, 32, size, stackWindows);
+
+	delete[] xwindows;
+	delete[] stackWindows;
 }
 
 void WindowManager::GrabTouch(Window &window){
@@ -404,7 +444,7 @@ void WindowManager::GrabTouch(Window &window){
 	xcb_input_xi_passive_grab_device_cookie_t c = xcb_input_xi_passive_grab_device(
 			xcb(),
 			XCB_CURRENT_TIME,
-			window,
+			window.GetWindow(),
 			XCB_CURSOR_NONE,
 			0, // detail - as used by XIPassiveGrab
 			XCB_INPUT_DEVICE_ALL_MASTER,
@@ -417,6 +457,35 @@ void WindowManager::GrabTouch(Window &window){
 			mask,
 			modifiers);
 	xcb_input_xi_passive_grab_device_reply_t *r = xcb_input_xi_passive_grab_device_reply(xcb(), c, &error);
+	if (error){
+		OutputError(*error);
+		free(error);
+	}
+
+}
+
+void WindowManager::ActiveGrabTouch(Window &window){
+
+	xcb_void_cookie_t cookie;
+	xcb_generic_error_t *error;
+	
+	const uint32_t mask[] = {XCB_INPUT_XI_EVENT_MASK_TOUCH_BEGIN
+							| XCB_INPUT_XI_EVENT_MASK_TOUCH_UPDATE
+							| XCB_INPUT_XI_EVENT_MASK_TOUCH_END
+	};
+	const uint32_t modifiers[] = {XCB_INPUT_MODIFIER_MASK_ANY};
+	xcb_input_xi_grab_device_cookie_t c = xcb_input_xi_grab_device(
+			xcb(),
+			window.GetWindow(),
+			XCB_CURRENT_TIME,
+			XCB_CURSOR_NONE,
+			XCB_INPUT_DEVICE_ALL_MASTER,
+			XCB_INPUT_GRAB_MODE_22_TOUCH,
+			XCB_INPUT_GRAB_MODE_22_ASYNC,
+			XCB_INPUT_GRAB_OWNER_NO_OWNER,
+			1, // mask_len
+			mask);
+	xcb_input_xi_grab_device_reply_t *r = xcb_input_xi_grab_device_reply(xcb(), c, &error);
 	if (error){
 		OutputError(*error);
 		free(error);
@@ -464,13 +533,13 @@ WindowManager::Touch *WindowManager::GetTouch(unsigned int id){
 Window *WindowManager::GetWindow(xcb_window_t w){
 	Window *win = NULL;
 	for (WindowList::iterator itr = windows.begin(); itr != windows.end(); itr++)
-		if (*itr == w)
+		if (itr->GetWindow() == w)
 			return &(*itr);
 	for (WindowList::iterator itr = topWindows.begin(); itr != topWindows.end(); itr++)
-		if (*itr == w)
+		if (itr->GetWindow() == w)
 			return &(*itr);
 	for (WindowList::iterator itr = bottomWindows.begin(); itr != bottomWindows.end(); itr++)
-		if (*itr == w)
+		if (itr->GetWindow() == w)
 			return &(*itr);
 	return win;
 }
@@ -629,7 +698,7 @@ void WindowManager::HandleMapRequest(xcb_map_request_event_t &e){
 	xcb_map_window(xcb(), e.window);
 
 	if (GetWindow(e.window) == NULL){
-		Window window(e.window, e.parent);
+		Window window(e.window);
 		AddWindow(window, true);
 	}
 }
@@ -700,6 +769,22 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 		} else
 			xcb_kill_client(xcb(), e.window);
 
+	} else if (e.type == ewmh()._NET_ACTIVE_WINDOW) {
+
+		Window *w = GetWindow(e.window);
+		if (w == NULL)
+			return;
+
+		if (e.format != 32){
+			std::cerr << "Unexpected format: " << e.format << "\n";
+			return;
+		}
+
+		uint32_t source = e.data.data32[0];
+		uint32_t timestamp = e.data.data32[1];
+		xcb_window_t requestor = e.data.data32[2];
+		RaiseWindow(*w, true);
+
 	} else {
 		xcb_get_atom_name_cookie_t cc = xcb_get_atom_name(xcb(), e.type);
 		xcb_get_atom_name_reply_t *cr = xcb_get_atom_name_reply(xcb(), cc, NULL);
@@ -707,6 +792,7 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 		std::cout << "\tevent.data.data32[0] = " << e.data.data32[0] << "\n";
 		std::cout << "\tevent.data.data32[1] = " << e.data.data32[1] << "\n";
 		std::cout << "\tevent.data.data32[2] = " << e.data.data32[2] << "\n";
+		free(cr);
 	}
 }
 
@@ -754,11 +840,11 @@ void WindowManager::HandleButtonPress(xcb_button_press_event_t &e){
 		yoff = e.event_y;
 		clickWindow = GetWindow(e.event);
 		xcb_allow_events(xcb(), XCB_ALLOW_SYNC_POINTER, XCB_CURRENT_TIME);
-		xcb_flush(xcb());
 	} else {
 		xcb_allow_events(xcb(), XCB_ALLOW_REPLAY_POINTER, XCB_CURRENT_TIME);
-		xcb_flush(xcb());
 	}
+
+	xcb_flush(xcb());
 }
 
 void WindowManager::HandleButtonRelease(xcb_button_release_event_t &e){
@@ -809,7 +895,7 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 
 	touch.push_back(Touch(e.detail, event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
 
-	if (wmMenu && (xcb_window_t)*wmMenu != event)
+	if (wmMenu && wmMenu->GetNativeWindow() != event)
 		wmMenu->Hide();
 
 	// no accept or reject, additional touches may mean accept,
@@ -843,13 +929,13 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 			// show the menu based on the location of the initial
 			// touch, not the newest
 			wmMenu->Show(touch[0].id, touch[0].x, touch[0].y);
-			wmMenu->SetTarget(*w);
+			wmMenu->SetTarget(w->GetWindow());
 		}
 		AcceptTouch(e);
 		xcb_flush(xcb());
 	}
 	else if (touch.size() == 3 && w){
-		MaximizeWindow(*w, root);
+		MaximizeWindow(w->GetWindow(), root);
 		AcceptTouch(e);
 	}
 	else {
@@ -978,7 +1064,7 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 		if (moved == false && captureTouch == false)
 			DeselectWindow();
 
-	} else if (touch.size() == 1 && wmMenu && *wmMenu == event){
+	} else if (touch.size() == 1 && wmMenu && wmMenu->GetNativeWindow() == event){
 
 		double x = e.event_x / 65536.0;
 		double y = e.event_y / 65536.0;
@@ -996,6 +1082,7 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 				r = suinput_syn(uinput_fd);
 			if (r == -1)
 				std::cerr << "Error occurred simulating mouse click\n";
+			DeselectWindow();
 			break;
 		}
 		case WMWindow::CLOSE:
@@ -1063,23 +1150,59 @@ void WindowManager::HandleSelectionClear(xcb_selection_clear_event_t &e){
 	}
 }
 
+/*
+ * This method handles destroy notify events. This results in removing the
+ * window from all internal lists.
+ */
 void WindowManager::HandleDestroyNotify(xcb_destroy_notify_event_t &e){
+
+	xcb_window_t root = 0;
+
+	// first, find the window in the list of all windows. If found, store its
+	// root for later use in updating the client lists.
+	for (WindowList::iterator itr = allWindows.begin(); itr != allWindows.end(); itr++){
+		if (itr->GetWindow() == e.window){
+			root = itr->GetRootWindow();
+			allWindows.erase(itr);
+			break;
+		}
+	}
+
+	// if no root was found, then this window isn't being managed, so abort
+	if (root == 0)
+		return;
+
 	for (WindowList::iterator itr = windows.begin(); itr != windows.end(); itr++){
-		if (*itr == e.window){
+		if (itr->GetWindow() == e.window){
 			windows.erase(itr);
 			break;
 		}
 	}
+	for (WindowList::iterator itr = bottomWindows.begin(); itr != bottomWindows.end(); itr++){
+		if (itr->GetWindow() == e.window){
+			windows.erase(itr);
+			break;
+		}
+	}
+	for (WindowList::iterator itr = topWindows.begin(); itr != topWindows.end(); itr++){
+		if (itr->GetWindow() == e.window){
+			windows.erase(itr);
+			break;
+		}
+	}
+
+	UpdateClientLists(root);
+	xcb_flush(xcb());
 }
 
 void WindowManager::HandleConfigureNotify(xcb_configure_notify_event_t &e){
-	if (wmMenu && e.window == *wmMenu){
+	if (wmMenu && e.window == wmMenu->GetNativeWindow()){
 		//wmMenu->Draw();
 	}
 }
 
 void WindowManager::HandleExpose(xcb_expose_event_t &e){
-	if (wmMenu && e.window == *wmMenu){
+	if (wmMenu && e.window == wmMenu->GetNativeWindow()){
 		wmMenu->Draw();
 	}
 }
@@ -1237,7 +1360,7 @@ void WindowManager::RaiseWindow(Window &w, bool focus){
 		if (sibling){
 			uint32_t mask = XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE;
 			uint32_t values[2];
-			values[0] = *sibling;
+			values[0] = sibling->GetWindow();
 			values[1] = XCB_STACK_MODE_BELOW;
 			w.Configure(mask, values);
 
@@ -1268,7 +1391,7 @@ void WindowManager::RaiseWindow(Window &w, bool focus){
 			Window &above = topWindows.back();
 			uint32_t mask = XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE;
 			uint32_t values[2];
-			values[0] = above;
+			values[0] = above.GetWindow();
 			values[1] = XCB_STACK_MODE_BELOW;
 			w.Configure(mask, values);
 
@@ -1281,8 +1404,11 @@ void WindowManager::RaiseWindow(Window &w, bool focus){
 	}
 
 	// regardless of stacking order, set focus
-	if (focus)
-		xcb_set_input_focus(xcb(), XCB_INPUT_FOCUS_POINTER_ROOT, w, XCB_CURRENT_TIME);
+	if (focus){
+		xcb_set_input_focus(xcb(), XCB_INPUT_FOCUS_POINTER_ROOT, w.GetWindow(), XCB_CURRENT_TIME);
+		xcb_window_t xwin = w.GetWindow();
+		xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, w.GetRootWindow(), ewmh()._NET_ACTIVE_WINDOW, XCB_ATOM_WINDOW, 32, 1, &xwin);
+	}
 	xcb_flush(xcb());
 }
 
@@ -1301,7 +1427,9 @@ void WindowManager::MoveWindow(Window &w, int x, int y){
 }
 
 /*
- *
+ * This method determines if a window should be expanded, and if so, resizes it
+ * and, as indicated by boolean parameters, moves it to account for the change
+ * in size without "moving" the window.
  *
  * Parameters:
  * 	w: The window to expand
