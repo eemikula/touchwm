@@ -825,7 +825,8 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 			w->Minimize(CLEAR);
 		} else if (iconicState == 3){
 			std::cout << "Iconify\n";
-			w->Minimize(SET);
+			//w->Minimize(SET);
+			w->Minimize(TOGGLE);
 		} else {
 			std::cerr << "Attempting to change iconic state to unknown value " << iconicState << "\n";
 		}
@@ -1504,8 +1505,8 @@ void WindowManager::RaiseWindow(Window &w, bool focus){
 
 	}
 
-	// regardless of stacking order, set focus
-	if (focus){
+	// regardless of stacking order, set focus (except for dock)
+	if (focus && w.GetType() != DOCK){
 		xcb_set_input_focus(xcb(), XCB_INPUT_FOCUS_POINTER_ROOT, w.GetWindow(), XCB_CURRENT_TIME);
 		xcb_window_t xwin = w.GetWindow();
 		xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, w.GetRootWindow(), ewmh()._NET_ACTIVE_WINDOW, XCB_ATOM_WINDOW, 32, 1, &xwin);
