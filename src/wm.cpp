@@ -110,6 +110,7 @@ WindowManager::WindowManager(){
 	touchWindow = 0;
 	captureTouch = false;
 	wmMenu = NULL;
+	touchGrab = true;
 
 	if (xcb() == NULL){
 		std::cerr << "Unable to get connection\n";
@@ -347,7 +348,13 @@ void WindowManager::AddWindow(Window &window, bool focus){
 	if (!window.GetRootWindow() || window.GetRootWindow() == window.GetWindow())
 		return;
 
-	allWindows.push_back(window);
+	allWindows.push_front(window);
+
+	// apply WM_STATE
+	uint32_t state[2];
+	state[0] = 1; // 0 = withdrawn, 1 = normal, 3 = iconic
+	state[1] = 0;
+	xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, window.GetWindow(), wmAtoms().WM_STATE, wmAtoms().WM_STATE, 32, 2, &state);
 
 	// Apply any pre-existing maximization here
 	if (window.GetWMState(MAXIMIZED_HORZ | MAXIMIZED_VERT))
@@ -359,32 +366,22 @@ void WindowManager::AddWindow(Window &window, bool focus){
 		std::cerr << "Window added as both above and below.\n";
 
 	// add the window to the appropriate stack of windows
-	if (window.GetWMState(ABOVE)){
+	if (window.GetWMState(ABOVE)
+	    || window.GetType() == DOCK
+	   ){
 		topWindows.push_front(window);
-		RaiseWindow(window, focus);
 	} else if (window.GetWMState(BELOW)){
 		bottomWindows.push_front(window);
-
-		// call RaiseWindow here to ensure proper stacking against windows
-		// with above or below stacking order. The scope of this call could
-		// be narrowed.
-		RaiseWindow(window, focus);
 	} else {
 		windows.push_front(window);
-
-		// call RaiseWindow here to ensure proper stacking against windows
-		// with above or below stacking order. The scope of this call could
-		// be narrowed.
-		RaiseWindow(window, focus);
 	}
 
-	UpdateClientLists(window.GetRootWindow());
+	// call RaiseWindow here to ensure proper stacking against windows
+	// with above or below stacking order. The scope of this call could
+	// be narrowed.
+	RaiseWindow(window, focus);
 
-	// apply WM_STATE
-	uint32_t state[2];
-	state[0] = 1; // 0 = withdrawn, 1 = normal, 3 = iconic
-	state[1] = 0;
-	xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, window.GetWindow(), wmAtoms().WM_STATE, wmAtoms().WM_STATE, 32, 2, &state);
+	UpdateClientLists(window.GetRootWindow());
 
 	xcb_atom_t actions[] = {
 		ewmh()._NET_WM_ACTION_CLOSE,
@@ -437,8 +434,9 @@ void WindowManager::GrabTouch(Window &window){
 	xcb_generic_error_t *error;
 	
 	const uint32_t mask[] = {XCB_INPUT_XI_EVENT_MASK_TOUCH_BEGIN
-							| XCB_INPUT_XI_EVENT_MASK_TOUCH_UPDATE
-							| XCB_INPUT_XI_EVENT_MASK_TOUCH_END
+				| XCB_INPUT_XI_EVENT_MASK_TOUCH_UPDATE
+				| XCB_INPUT_XI_EVENT_MASK_TOUCH_END
+				//| XCB_INPUT_XI_EVENT_MASK_TOUCH_OWNERSHIP
 	};
 	const uint32_t modifiers[] = {XCB_INPUT_MODIFIER_MASK_ANY};
 	xcb_input_xi_passive_grab_device_cookie_t c = xcb_input_xi_passive_grab_device(
@@ -471,7 +469,7 @@ void WindowManager::ActiveGrabTouch(Window &window){
 	
 	const uint32_t mask[] = {XCB_INPUT_XI_EVENT_MASK_TOUCH_BEGIN
 							| XCB_INPUT_XI_EVENT_MASK_TOUCH_UPDATE
-							| XCB_INPUT_XI_EVENT_MASK_TOUCH_END
+							//| XCB_INPUT_XI_EVENT_MASK_TOUCH_END
 	};
 	const uint32_t modifiers[] = {XCB_INPUT_MODIFIER_MASK_ANY};
 	xcb_input_xi_grab_device_cookie_t c = xcb_input_xi_grab_device(
@@ -558,6 +556,16 @@ void WindowManager::DeselectWindow(){
 	touchWindow = NULL;
 }
 
+void WindowManager::AcceptAllTouch(){
+	for (TouchList::iterator itr = touch.begin(); itr != touch.end(); itr++){
+		if (itr->unaccepted == true){
+			xcb_input_xi_allow_events(xcb(), XCB_CURRENT_TIME, itr->device, XCB_INPUT_EVENT_MODE_ACCEPT_TOUCH, itr->id, itr->window);
+			xcb_flush(xcb());
+			itr->unaccepted = false;
+		}
+	}
+}
+
 void WindowManager::AcceptTouch(xcb_input_touch_begin_event_t e){
 	Touch *t = GetTouch(e.detail);
 	if (!t || t->unaccepted == true){
@@ -566,6 +574,16 @@ void WindowManager::AcceptTouch(xcb_input_touch_begin_event_t e){
 	}
 	if (t)
 		t->unaccepted = false;
+}
+
+void WindowManager::RejectAllTouch(){
+	for (TouchList::iterator itr = touch.begin(); itr != touch.end(); itr++){
+		if (itr->unaccepted == true){
+			xcb_input_xi_allow_events(xcb(), XCB_CURRENT_TIME, itr->device, XCB_INPUT_EVENT_MODE_REJECT_TOUCH, itr->id, itr->window);
+			xcb_flush(xcb());
+			itr->unaccepted = false;
+		}
+	}
 }
 
 void WindowManager::RejectTouch(xcb_input_touch_begin_event_t e){
@@ -649,6 +667,8 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 			break;
 		case XCB_INPUT_TOUCH_END:
 			HandleTouchEnd(*(xcb_input_touch_end_event_t*)e);
+			break;
+		case XCB_INPUT_TOUCH_OWNERSHIP:
 			break;
 		default:
 			std::cout << "Unknown generic event " << ge->event_type << "\n";
@@ -785,6 +805,31 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 		xcb_window_t requestor = e.data.data32[2];
 		RaiseWindow(*w, true);
 
+	} else if (e.type == wmAtoms().WM_CHANGE_STATE) {
+
+		Window *w = GetWindow(e.window);
+		if (w == NULL)
+			return;
+
+		if (e.format != 32){
+			std::cerr << "Unexpected format: " << e.format << "\n";
+			return;
+		}
+
+		uint32_t iconicState = e.data.data32[0]; // 0 = withdrawn, 1 = normal, 3 = iconic
+		if (iconicState == 0){
+			std::cout << "Withdraw\n";
+			w->Minimize(SET);
+		} else if (iconicState == 1){
+			std::cout << "Normal\n";
+			w->Minimize(CLEAR);
+		} else if (iconicState == 3){
+			std::cout << "Iconify\n";
+			w->Minimize(SET);
+		} else {
+			std::cerr << "Attempting to change iconic state to unknown value " << iconicState << "\n";
+		}
+
 	} else {
 		xcb_get_atom_name_cookie_t cc = xcb_get_atom_name(xcb(), e.type);
 		xcb_get_atom_name_reply_t *cr = xcb_get_atom_name_reply(xcb(), cc, NULL);
@@ -889,11 +934,22 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 		return;
 	}
 
+	touch.push_back(Touch(e.deviceid, e.detail, event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
+
+	// three touches means toggle touch grab
+	if (touch.size() == 3){
+		AcceptAllTouch();
+		touchGrab = !touchGrab;
+	}
+
+	if (!touchGrab){
+		xcb_flush(xcb());
+		return;
+	}
+
 	Window *w = GetWindow(event);
 	if (w && captureTouch == false)
 		RaiseWindow(*w, true);
-
-	touch.push_back(Touch(e.detail, event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
 
 	if (wmMenu && wmMenu->GetNativeWindow() != event)
 		wmMenu->Hide();
@@ -907,7 +963,7 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 	// if touching touchWindow, accept, since this means moving
 	else if (touch.size() == 1){
 		captureTouch = false;
-		AcceptTouch(e);
+		AcceptAllTouch();
 	}
 
 	// if two touches, accept
@@ -930,14 +986,17 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 			// touch, not the newest
 			wmMenu->Show(touch[0].id, touch[0].x, touch[0].y);
 			wmMenu->SetTarget(w->GetWindow());
-		}
-		AcceptTouch(e);
+			//AcceptAllTouch();
+		}// else RejectTouch(e);
+		AcceptAllTouch();
 		xcb_flush(xcb());
 	}
+
+	/* // three touches means toggle maximize
 	else if (touch.size() == 3 && w){
 		MaximizeWindow(w->GetWindow(), root);
-		AcceptTouch(e);
-	}
+		AcceptAllTouch();
+	}*/
 	else {
 		xcb_flush(xcb());
 	}
@@ -961,6 +1020,12 @@ void WindowManager::HandleTouchUpdate(xcb_input_touch_update_event_t &e){
 	double x = e.root_x / 65536.0;
 	double y = e.root_y / 65536.0;
 	Touch *t = GetTouch(e.detail);
+
+	if (!touchGrab){
+		RejectTouch(e);
+		xcb_flush(xcb());
+		return;
+	}
 
 	// if moving the menu touch, move the menu
 	if (wmMenu && e.detail == wmMenu->GetID()){
@@ -1039,8 +1104,9 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 	if (!touchWindow){
 		RejectTouch(e);
 		//xcb_flush(xcb());
+		//return;
 	} else {
-		AcceptTouch(e);
+		AcceptAllTouch();
 	}
 
 	bool moved = false;
@@ -1110,6 +1176,8 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 			break;
 		case WMWindow::MINIMIZE:
 			std::cout << "Minimize\n";
+			MinimizeWindow(wmMenu->GetTarget(), root);
+			DeselectWindow();
 			break;
 		case WMWindow::BELOW:
 			std::cout << "Below\n";
@@ -1243,6 +1311,36 @@ void WindowManager::MaximizeWindow(xcb_window_t window, xcb_window_t root, bool 
 }
 
 /*
+ * This method minimizes a window
+ *
+ * Parameters:
+ * 	window: The window to minimize
+ * 	root: The root of the window to minimize
+ */
+void WindowManager::MinimizeWindow(xcb_window_t window, xcb_window_t root){
+
+	xcb_client_message_event_t event;
+	event.response_type = XCB_CLIENT_MESSAGE;
+	event.format = 32;
+	event.sequence = 0;
+	event.window = window;
+	event.type = wmAtoms().WM_CHANGE_STATE;
+	event.data.data32[0] = 3L; // Iconify
+	event.data.data32[1] = 0L;
+	event.data.data32[2] = 0L;
+	event.data.data32[3] = 0L;
+	event.data.data32[4] = 0L;
+
+	// send the event. Note the event mask is derived from source for xcb-ewmh
+	xcb_send_event(xcb(), false, root, XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT, (const char*)&event);
+
+	// flush to make sure the event is processed before the object
+	// goes out of scope
+	xcb_flush(xcb());
+
+}
+
+/*
  * This method changes the specified WMState value for the specified window,
  * using extended window manager hints. Note that only a single WMState can be
  * toggled at a time - bit masks are not supported. It ultimately produces a
@@ -1347,6 +1445,9 @@ void WindowManager::DeleteWindow(xcb_window_t window){
  * 	window: The window to raise
  */
 void WindowManager::RaiseWindow(Window &w, bool focus){
+
+	if (w.GetType() == DESKTOP)
+		return;
 	
 	// if this window is "below," only raise it above other below windows
 	if (w.GetWMState(BELOW)){
@@ -1372,7 +1473,7 @@ void WindowManager::RaiseWindow(Window &w, bool focus){
 			w.Raise();
 
 	// if this window is "above," raise it above other above windows
-	} else if (w.GetWMState(ABOVE)){
+	} else if (w.GetWMState(ABOVE) || w.GetType() == DOCK){
 
 		w.Raise();
 
@@ -1408,7 +1509,11 @@ void WindowManager::RaiseWindow(Window &w, bool focus){
 		xcb_set_input_focus(xcb(), XCB_INPUT_FOCUS_POINTER_ROOT, w.GetWindow(), XCB_CURRENT_TIME);
 		xcb_window_t xwin = w.GetWindow();
 		xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, w.GetRootWindow(), ewmh()._NET_ACTIVE_WINDOW, XCB_ATOM_WINDOW, 32, 1, &xwin);
+
+		// ensure window is not minimized
+		w.Minimize(CLEAR);
 	}
+
 	xcb_flush(xcb());
 }
 
@@ -1421,7 +1526,7 @@ void WindowManager::RaiseWindow(Window &w, bool focus){
  * 	y: the amount to move the window on the y axis, relative to current position
  */
 void WindowManager::MoveWindow(Window &w, int x, int y){
-	if (w.GetType() != DESKTOP){
+	if (w.GetType() != DESKTOP && w.GetType() != DOCK){
 		w.Move(x, y);
 	}
 }
@@ -1441,7 +1546,7 @@ void WindowManager::MoveWindow(Window &w, int x, int y){
  * 		y axis to account for the corresponding change in height
  */
 void WindowManager::ExpandWindow(Window &w, int width, int height, bool xshift, bool yshift){
-	if (w.GetType() != DESKTOP){
+	if (w.GetType() != DESKTOP && w.GetType() != DOCK){
 		w.Maximize(CLEAR);
 		w.Expand(width, height, xshift, yshift);
 	}

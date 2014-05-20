@@ -53,7 +53,7 @@ window(CreateWindow(parent, screen, s)
 	buttons.push_back(closeButton);
 	buttons.push_back(vertMaxButton);
 	buttons.push_back(horzMaxButton);
-	//buttons.push_back(minimizeButton);
+	buttons.push_back(minimizeButton);
 	buttons.push_back(aboveButton);
 	buttons.push_back(maxButton);
 }

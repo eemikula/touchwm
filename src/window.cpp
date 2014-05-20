@@ -335,12 +335,21 @@ void Window::Maximize(xcb_window_t target, WMStateChange change, bool horz, bool
 }
 
 /*
- * This method maximizes the window, using its parent as a target
+ * This method modifies maximization on the specified axes
+ *
+ * Parameters:
+ * 	change: The change to apply to both maximizations - CLEAR, SET, TOGGLE
+ * 	horz: True iff change applies to horizontal maximization
+ * 	vert: True iff change applies to vertical maximization
  */
 void Window::Maximize(WMStateChange change, bool horz, bool vert){
 	if (root)
 		Maximize(root, change, horz, vert);
 }
+
+/*
+ * This method modifies topmost state of the window
+ */
 
 void Window::Topmost(WMStateChange change){
 	uint16_t state = wmState;
@@ -365,6 +374,30 @@ void Window::Topmost(WMStateChange change){
 }
 
 void Window::Minimize(WMStateChange change){
+	uint16_t state = wmState;
+	switch (change){
+	case SET:
+		state |= HIDDEN;
+		break;
+	case CLEAR:
+		state &= ~(HIDDEN);
+		break;
+	case TOGGLE:
+		state ^= HIDDEN;
+		break;
+	}
+
+	// just return if there were no changes
+	if (state == wmState)
+		return;
+
+	SetWMState(state);
+	if (GetWMState(HIDDEN))
+		xcb_unmap_window(xcb(), window);
+	else
+		xcb_map_window(xcb(), window);
+
+	xcb_flush(xcb());
 }
 
 /*

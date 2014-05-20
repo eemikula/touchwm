@@ -36,7 +36,8 @@ private:
 	uinput_user_dev user_dev;
 
 	struct Touch {
-		Touch(unsigned int id, xcb_window_t w, int x, int y, int root_x, int root_y){
+		Touch(unsigned int device, unsigned int id, xcb_window_t w, int x, int y, int root_x, int root_y){
+			this->device = device;
 			this->id = id;
 			this->window = w;
 			this->x = root_x;
@@ -47,6 +48,7 @@ private:
 			this->unaccepted = true;
 		}
 
+		xcb_input_device_id_t device;
 		xcb_window_t window;
 		int x, y;
 		int xoff, yoff;
@@ -80,6 +82,7 @@ private:
 	Window *touchWindow;
 	int xoff, yoff;
 	WMWindow *wmMenu;
+	bool touchGrab;
 
 	typedef std::vector<xcb_keycode_t> KeyList;
 	KeyList tabKeys;
@@ -93,6 +96,7 @@ private:
 	void SelectWindow(Window &w);
 	void DeselectWindow();
 	void MaximizeWindow(xcb_window_t window, xcb_window_t root, bool maxHorz = true, bool maxVert = true);
+	void MinimizeWindow(xcb_window_t window, xcb_window_t root);
 	void ChangeWMState(xcb_window_t window, xcb_window_t root, WMStateChange change, WMState state);
 	void CloseWindow(xcb_window_t window, xcb_window_t root);
 	void DeleteWindow(xcb_window_t window);
@@ -102,7 +106,9 @@ private:
 	void GrabTouch(Window &w);
 	void ActiveGrabTouch(Window &w);
 
+	void AcceptAllTouch();
 	void AcceptTouch(xcb_input_touch_begin_event_t t);
+	void RejectAllTouch();
 	void RejectTouch(xcb_input_touch_begin_event_t t);
 
 	// Event handlers
