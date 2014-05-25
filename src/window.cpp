@@ -220,9 +220,6 @@ void Window::Raise(){
 		const static uint32_t values[] = { XCB_STACK_MODE_ABOVE };
 		xcb_configure_window(xcb(), window, XCB_CONFIG_WINDOW_STACK_MODE, values);
 	}
-
-	// apply focus
-	//xcb_set_input_focus(xcb(), XCB_INPUT_FOCUS_POINTER_ROOT, window, XCB_CURRENT_TIME);
 }
 
 void Window::Configure(uint16_t mask, const uint32_t *values){
@@ -254,6 +251,74 @@ void Window::SetOpacity(double op){
  * 	target: A window object whose geometry will be used as the frame
  *		of reference for maximizing the window
  */
+void Window::Maximize(const Box &target, WMStateChange change, bool horz, bool vert){
+
+	uint16_t state = wmState;
+	uint16_t setMask = 0;
+	if (horz)
+		setMask |= MAXIMIZED_HORZ;
+	if (vert)
+		setMask |= MAXIMIZED_VERT;
+
+	switch (change){
+	case SET:
+		state |= setMask;
+		break;
+	case CLEAR:
+		state &= ~(setMask);
+		break;
+	case TOGGLE:
+		state ^= setMask;
+		break;
+	}
+
+	// just return if there were no changes
+	//if (state == wmState)
+	//	return;
+
+	SetWMState(state);
+
+	uint16_t mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y;
+	uint32_t values[4];
+	if (GetWMState(MAXIMIZED_VERT | MAXIMIZED_HORZ)){
+		values[0] = target.x;
+		values[1] = target.y;
+
+		// prevent sending resize unless the window is actually being resized
+		if (this->width != target.width || this->height != target.height){
+			mask |= XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+			values[2] = target.width;
+			values[3] = target.height;
+		}
+	} else if (GetWMState(MAXIMIZED_VERT)){
+		values[0] = x;
+		values[1] = target.y;
+
+		// prevent sending resize unless the window is actually being resized
+		if (this->height != target.height){
+			mask |= XCB_CONFIG_WINDOW_HEIGHT;
+			values[2] = target.height;
+		}
+	} else if (GetWMState(MAXIMIZED_HORZ)){
+		values[0] = target.x;
+		values[1] = y;
+
+		// prevent sending resize unless the window is actually being resized
+		if (this->width != target.width || this->height != target.height){
+			mask |= XCB_CONFIG_WINDOW_WIDTH;
+			values[2] = target.width;
+		}
+	} else {
+		mask |= XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+		values[0] = x;
+		values[1] = y;
+		values[2] = width;
+		values[3] = height;
+	}
+	xcb_configure_window(xcb(), window, mask, values);
+	xcb_flush(xcb());
+}
+
 void Window::Maximize(xcb_window_t target, WMStateChange change, bool horz, bool vert){
 
 	uint16_t state = wmState;
@@ -276,8 +341,8 @@ void Window::Maximize(xcb_window_t target, WMStateChange change, bool horz, bool
 	}
 
 	// just return if there were no changes
-	if (state == wmState)
-		return;
+	//if (state == wmState)
+	//	return;
 
 	SetWMState(state);
 

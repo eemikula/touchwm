@@ -91,11 +91,12 @@ private:
 
 	Touch *GetTouch(unsigned int id);
 	Window *GetWindow(xcb_window_t w);
+	Box GetMaxBox(Window &w);
 
 	void UpdateClientLists(xcb_window_t root);
 	void SelectWindow(Window &w);
 	void DeselectWindow();
-	void MaximizeWindow(xcb_window_t window, xcb_window_t root, bool maxHorz = true, bool maxVert = true);
+	void MaximizeWindow(xcb_window_t window, xcb_window_t root, WMStateChange change = TOGGLE, bool maxHorz = true, bool maxVert = true);
 	void MinimizeWindow(xcb_window_t window, xcb_window_t root);
 	void ChangeWMState(xcb_window_t window, xcb_window_t root, WMStateChange change, WMState state);
 	void CloseWindow(xcb_window_t window, xcb_window_t root);
@@ -124,6 +125,7 @@ private:
 	void HandleTouchUpdate(xcb_input_touch_update_event_t &e);
 	void HandleTouchEnd(xcb_input_touch_end_event_t &e);
 	void HandleSelectionClear(xcb_selection_clear_event_t &e);
+	void HandleCreateNotify(xcb_create_notify_event_t &e);
 	void HandleDestroyNotify(xcb_destroy_notify_event_t &e);
 	void HandleConfigureNotify(xcb_configure_notify_event_t &e);
 	void HandleExpose(xcb_expose_event_t &e);

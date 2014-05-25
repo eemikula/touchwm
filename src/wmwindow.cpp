@@ -73,11 +73,11 @@ Window WMWindow::CreateWindow(Window &parent, Screen &screen, Style s){
 
 	xcb_visualtype_t *visual = screen.GetVisualType();
 	xcb_window_t w = xcb_generate_id(xcb());
-	uint32_t values[4] = { 0, 0, XCB_EVENT_MASK_EXPOSURE, screen.GetRGBAColorMap() };
+	uint32_t values[5] = { 0, 0, 1, XCB_EVENT_MASK_EXPOSURE, screen.GetRGBAColorMap() };
 	xcb_create_window(xcb(), 32, w, parent.GetRootWindow(),
 			0, 0, width, height, 0,
 			XCB_WINDOW_CLASS_INPUT_OUTPUT, visual->visual_id,
-			XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP, values);
+			XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP, values);
 
 	return Window(w);
 }

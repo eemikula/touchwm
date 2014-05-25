@@ -33,6 +33,10 @@ enum WMStateChange {
 	CLEAR = 0, SET = 1, TOGGLE = 2
 };
 
+struct Box {
+	int x, y, width, height;
+};
+
 class Window {
 public:
 	Window(xcb_window_t win);
@@ -53,6 +57,7 @@ public:
 		this->supportsDelete = w.supportsDelete;
 		this->visible = w.visible;
 		this->overrideRedirect = w.overrideRedirect;
+		this->box = w.box;
 	}
 
 	bool operator == (const Window &w){
@@ -69,21 +74,26 @@ public:
 	void SetOpacity(double opacity);
 	void Maximize(WMStateChange change, bool horz = true, bool vert = true);
 	void Maximize(xcb_window_t target, WMStateChange change, bool horz = true, bool vert = true);
+	void Maximize(const Box &target, WMStateChange change, bool horz = true, bool vert = true);
 	void Topmost(WMStateChange change);
 	void Minimize(WMStateChange change);
 	uint16_t GetWMState(){return wmState;}
 
 	bool GetWMState(uint16_t mask){return (wmState & mask) == mask;}
 	bool SupportsDelete(){return supportsDelete;}
-	bool IsVisible(){return visible;}
+	bool IsVisible(){return visible || GetWMState(HIDDEN) == HIDDEN;}
 	bool OverrideRedirect(){return overrideRedirect;}
 
 	xcb_window_t GetWindow(){return window;}
 	xcb_window_t GetRootWindow(){return root;}
+	int GetX(){return x;};
+	int GetY(){return y;};
+	int GetWidth(){return width;}
+	int GetHeight(){return height;}
+	int x, y, width, height;
 
 private:
 	std::string title;
-	int x, y, width, height;
 	xcb_window_t window;
 	xcb_window_t root;
 	uint16_t wmState;
@@ -91,6 +101,8 @@ private:
 	bool supportsDelete;
 	bool visible;
 	bool overrideRedirect;
+	bool topLevel;
+	Box box;
 
 	void SetWMState(uint16_t state);
 };

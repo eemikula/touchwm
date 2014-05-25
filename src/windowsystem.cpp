@@ -23,32 +23,33 @@ WindowSystem::WindowSystem(){
 	}
 
 	// get some useful atoms that aren't a part of EWMH
-	const char wm_opacity[] = "_NET_WM_WINDOW_OPACITY";
-	const char wm_protocols[] = "WM_PROTOCOLS";
-	const char wm_delete_window[] = "WM_DELETE_WINDOW";
-	const char wm_state[] = "WM_STATE";
-	const char wm_change_state[] = "WM_CHANGE_STATE";
-	xcb_intern_atom_cookie_t c[5];
-	c[0] = xcb_intern_atom(xcb, false, strlen(wm_protocols), wm_protocols);
-	c[1] = xcb_intern_atom(xcb, false, strlen(wm_delete_window), wm_delete_window);
-	c[2] = xcb_intern_atom(xcb, false, strlen(wm_opacity), wm_opacity);
-	c[3] = xcb_intern_atom(xcb, false, strlen(wm_state), wm_state);
-	c[4] = xcb_intern_atom(xcb, false, strlen(wm_change_state), wm_change_state);
-
+	const char *atomNames[] = {
+		"_NET_WM_WINDOW_OPACITY",
+		"WM_PROTOCOLS",
+		"WM_DELETE_WINDOW",
+		"WM_STATE",
+		"WM_CHANGE_STATE"
+	};
+	static const int atomCount = sizeof(atomNames)/sizeof(char*);
+	xcb_intern_atom_cookie_t c[atomCount];
+	int i;
+	for (i = 0; i < atomCount; i++)
+		c[i] = xcb_intern_atom(xcb, false, strlen(atomNames[i]), atomNames[i]);
 	xcb_intern_atom_reply_t *ar;
-	ar = xcb_intern_atom_reply(xcb, c[0], NULL);
-	atoms.WM_PROTOCOLS = ar->atom;
-	free(ar);
-	ar = xcb_intern_atom_reply(xcb, c[1], NULL);
-	atoms.WM_DELETE_WINDOW = ar->atom;
-	free(ar);
-	ar = xcb_intern_atom_reply(xcb, c[2], NULL);
+	i = 0;
+	ar = xcb_intern_atom_reply(xcb, c[i++], NULL);
 	atoms._NET_WM_WINDOW_OPACITY = ar->atom;
 	free(ar);
-	ar = xcb_intern_atom_reply(xcb, c[3], NULL);
+	ar = xcb_intern_atom_reply(xcb, c[i++], NULL);
+	atoms.WM_PROTOCOLS = ar->atom;
+	free(ar);
+	ar = xcb_intern_atom_reply(xcb, c[i++], NULL);
+	atoms.WM_DELETE_WINDOW = ar->atom;
+	free(ar);
+	ar = xcb_intern_atom_reply(xcb, c[i++], NULL);
 	atoms.WM_STATE = ar->atom;
 	free(ar);
-	ar = xcb_intern_atom_reply(xcb, c[4], NULL);
+	ar = xcb_intern_atom_reply(xcb, c[i++], NULL);
 	atoms.WM_CHANGE_STATE = ar->atom;
 	free(ar);
 

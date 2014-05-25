@@ -12,6 +12,7 @@ Touchscreen Window Manager prototype
 #include <cstring>
 
 #include <xcb/xcb.h>
+//#include <xcb/xinerama.h>
 #include <xcb/xinput.h>
 #include <xcb/xcb_ewmh.h>
 #include <xcb/xcb_keysyms.h>
@@ -57,6 +58,7 @@ int main(int argc, char* argv[]){
 		std::cerr << "No screens found\n";
 		return 1;
 	}
+	std::cout << "Found " << screens.size() << " screens\n";
 
 	int i = 0;
 	for (ScreenList::iterator itr = screens.begin(); itr != screens.end(); itr++, i++){
@@ -83,6 +85,18 @@ int main(int argc, char* argv[]){
 }
 
 WindowManager::WindowManager(){
+
+/*	// Prototyping xinerama
+	ListDevices();
+	xcb_xinerama_query_screens_cookie_t xc = xcb_xinerama_query_screens(xcb());
+	xcb_xinerama_query_screens_reply_t *xr = xcb_xinerama_query_screens_reply(xcb(), xc, NULL);
+	xcb_xinerama_screen_info_iterator_t itr = xcb_xinerama_query_screens_screen_info_iterator(xr);
+	for (int i = 0; itr.rem; xcb_xinerama_screen_info_next(&itr), i++){
+		std::cout << "Screen " << i << ":\n";
+		std::cout << "\tXxY: " << itr.data->x_org << ", " << itr.data->y_org << "\n";
+		std::cout << "\tWxH: " << itr.data->width << "x" << itr.data->height << "\n";
+	}
+*/
 
 	// Because of the nature of X11, mouse events produced by a client are
 	// not reliably handled by applications. In order to work around this,
@@ -128,9 +142,11 @@ WindowManager::WindowManager(){
 		ewmh()._NET_WM_STATE,
 		ewmh()._NET_WM_STATE_MAXIMIZED_VERT,
 		ewmh()._NET_WM_STATE_MAXIMIZED_HORZ,
-		ewmh()._NET_WM_STATE_ABOVE
+		ewmh()._NET_WM_STATE_ABOVE,
+		ewmh()._NET_WM_STATE_HIDDEN,
+		ewmh()._NET_DESKTOP_GEOMETRY
 	};
-	xcb_ewmh_set_supported(&ewmh(), 0, 3, atoms);
+	xcb_ewmh_set_supported(&ewmh(), 0, sizeof(atoms)/sizeof(xcb_atom_t), atoms);
 
 	// Store a list of keycodes for keys that are grabbed
 	xcb_key_symbols_t *keysyms = xcb_key_symbols_alloc(xcb());
@@ -162,10 +178,11 @@ void WindowManager::ListDevices(){
 		std::cout << "\tname: " << xcb_input_xi_device_info_name(itr.data) << "\n";
 		xcb_input_device_class_iterator_t i = xcb_input_xi_device_info_classes_iterator(itr.data);
 		for (; i.rem; xcb_input_device_class_next(&i)){
-			/*if (i.data->type != XCB_INPUT_DEVICE_CLASS_TYPE_TOUCH)
+			if ((i.data->type & XCB_INPUT_DEVICE_CLASS_TYPE_TOUCH) > 0){
+				//std::cout << "Device id: " << itr.data->deviceid << "\n";
+				//std::cout << "\tname: " << xcb_input_xi_device_info_name(itr.data) << "\n";
 				std::cout << "\tsupports touch\n";
-			else
-				continue;*/
+			}
 		}
 	}
 	free(reply);
@@ -186,8 +203,10 @@ ScreenList WindowManager::GetScreens(){
 
 	int roots = xcb_setup_roots_length(setup);
 	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
-	for (int i = 0; iter.rem; xcb_screen_next(&iter), i++)
+	for (int i = 0; iter.rem; xcb_screen_next(&iter), i++){
+		std::cout << "Screen " << i << ": " << iter.data->width_in_pixels << "x" << iter.data->height_in_pixels << "\n";
 		screens.push_back(Screen(iter.data, i));
+	}
 	return screens;
 }
 
@@ -358,7 +377,7 @@ void WindowManager::AddWindow(Window &window, bool focus){
 
 	// Apply any pre-existing maximization here
 	if (window.GetWMState(MAXIMIZED_HORZ | MAXIMIZED_VERT))
-		window.Maximize(SET, window.GetWMState(MAXIMIZED_HORZ),
+		window.Maximize(GetMaxBox(window), SET, window.GetWMState(MAXIMIZED_HORZ),
 				     window.GetWMState(MAXIMIZED_VERT));
 
 	// really not sure what to do here. Maybe purge both states?
@@ -376,11 +395,6 @@ void WindowManager::AddWindow(Window &window, bool focus){
 		windows.push_front(window);
 	}
 
-	// call RaiseWindow here to ensure proper stacking against windows
-	// with above or below stacking order. The scope of this call could
-	// be narrowed.
-	RaiseWindow(window, focus);
-
 	UpdateClientLists(window.GetRootWindow());
 
 	xcb_atom_t actions[] = {
@@ -389,7 +403,9 @@ void WindowManager::AddWindow(Window &window, bool focus){
 		ewmh()._NET_WM_ACTION_MAXIMIZE_VERT,
 		ewmh()._NET_WM_ACTION_MINIMIZE,
 		ewmh()._NET_WM_ACTION_ABOVE,
-		ewmh()._NET_WM_ACTION_BELOW
+		ewmh()._NET_WM_ACTION_BELOW,
+		ewmh()._NET_WM_ACTION_MOVE,
+		ewmh()._NET_WM_ACTION_RESIZE
 	};
 	xcb_change_property(xcb(), XCB_PROP_MODE_REPLACE, window.GetWindow(), ewmh()._NET_WM_ALLOWED_ACTIONS, XCB_ATOM_ATOM, 32, sizeof(actions)/sizeof(xcb_atom_t), actions);
 
@@ -679,6 +695,10 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 		HandleSelectionClear(*(xcb_selection_clear_event_t*)e);
 		break;
 	}
+	case XCB_CREATE_NOTIFY:{
+		HandleCreateNotify(*(xcb_create_notify_event_t*)e);
+		break;
+	}
 	case XCB_DESTROY_NOTIFY:{
 		HandleDestroyNotify(*(xcb_destroy_notify_event_t*)e);
 		break;
@@ -698,8 +718,10 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 
 	// currently ignored
 	case XCB_UNMAP_NOTIFY:
+		//std::cout << "Unmapping " << Window((*(xcb_unmap_notify_event_t*)e).window).GetTitle() << "\n";
+		break;
 	case XCB_MAP_NOTIFY:
-	case XCB_CREATE_NOTIFY:
+		//std::cout << "Mapping " << Window((*(xcb_map_notify_event_t*)e).window).GetTitle() << "\n";
 		break;
 
 	default:
@@ -712,27 +734,90 @@ void WindowManager::HandleEvent(xcb_generic_event_t *e){
 	}
 }
 
+/*
+ * Handles a map request by mapping the window, and, if it was previously
+ * an unknown window, adding it to the managed list. Windows are only added
+ * to the managed list if they are mapped - for some events, such as configure
+ * requests and client messages, events may be handled for windows that are
+ * not in the managed list, but in general lists are only maintained for
+ * windows that are intended to be interacted with. This prevents the manager
+ * as well as other utilities like taskbars from handling windows that are
+ * not meant to be seen.
+ */
 void WindowManager::HandleMapRequest(xcb_map_request_event_t &e){
 
-	// map the window regardless of whether we know it or not
+	// always map window on request
 	xcb_map_window(xcb(), e.window);
 
 	if (GetWindow(e.window) == NULL){
 		Window window(e.window);
-		AddWindow(window, true);
+		if (window.OverrideRedirect() == false)
+			AddWindow(window, true);
+		RaiseWindow(window, true);
 	}
+
+	/*Window *w = GetWindow(e.window);
+	if (w)
+		RaiseWindow(*w, true);*/
+
+	xcb_flush(xcb());
+
+}
+
+Box WindowManager::GetMaxBox(Window &w){
+	Box b;
+
+	// get the root window as a starting point for size
+	Window root(w.GetRootWindow());
+
+	b.x = b.y = 0;
+	b.width = root.GetWidth();
+	b.height = root.GetHeight();
+
+	// reduce the size of the max box based on coordinates and dimensions
+	// of any dock windows
+	int left, top, right, bottom;
+	left = b.x;
+	right = b.x+b.width;
+	top = b.y;
+	bottom = b.y+b.height;
+	for (WindowList::iterator itr = allWindows.begin(); itr != allWindows.end(); itr++){
+		if (itr->GetType() == DOCK){
+
+			// initialize a new window for the dock, because the cached
+			// version may not reflect current dimensions
+			Window dock(itr->GetWindow());
+			if (dock.GetX() == 0 && dock.GetWidth() > left && dock.GetWidth() < right)
+				left = dock.GetWidth();
+			else if (dock.GetX() > 0 && dock.GetX() + dock.GetWidth() == root.GetWidth() && dock.GetX() < right)
+				right = dock.GetX();
+			if (dock.GetY() == 0 && dock.GetHeight() > top && dock.GetHeight() < bottom)
+				top = dock.GetHeight();
+			else if (dock.GetY() > 0 && dock.GetY() + dock.GetHeight() == root.GetHeight() && dock.GetY() < bottom)
+				bottom = dock.GetY();
+		}
+	}
+	b.x = left;
+	b.y = top;
+	b.width = right-left;
+	b.height = bottom-top;
+
+	return b;
 }
 
 void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 	if (e.type == ewmh()._NET_WM_STATE){
 
-		Window *w = GetWindow(e.window);
-		if (w == NULL)
-			return;
-
 		if (e.format != 32){
 			std::cerr << "Unexpected format: " << e.format << "\n";
 			return;
+		}
+
+		bool del = false;
+		Window *w = GetWindow(e.window);
+		if (w == NULL){
+			w = new Window(e.window);
+			del = true;
 		}
 
 		bool maxVert = false;
@@ -747,7 +832,7 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 		WMStateChange change = (WMStateChange)e.data.data32[0];
 
 		if (maxVert || maxHorz){
-			w->Maximize(change, maxHorz, maxVert);
+			w->Maximize(GetMaxBox(*w), change, maxHorz, maxVert);
 		} else if (e.data.data32[1] == ewmh()._NET_WM_STATE_ABOVE){
 			w->Topmost(change);
 			if (w->GetWMState(ABOVE)){
@@ -769,11 +854,15 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 				bottomWindows.remove(*w);
 				windows.push_front(*w);
 			}
+		} else if (e.data.data32[1] == ewmh()._NET_WM_STATE_HIDDEN){
+			w->Minimize(change);
 		} else {
 			std::cout << "Attempting to change unsupported WM state " << e.data.data32[1] << "\n";
 		}
+		if (del) delete w;
 
 	} else if (e.type == ewmh()._NET_CLOSE_WINDOW) {
+		std::cout << "Close window\n";
 
 		Window *w = GetWindow(e.window);
 		if (w == NULL)
@@ -790,6 +879,7 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 			xcb_kill_client(xcb(), e.window);
 
 	} else if (e.type == ewmh()._NET_ACTIVE_WINDOW) {
+		std::cout << "Active window\n";
 
 		Window *w = GetWindow(e.window);
 		if (w == NULL)
@@ -806,7 +896,7 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 		RaiseWindow(*w, true);
 
 	} else if (e.type == wmAtoms().WM_CHANGE_STATE) {
-
+		std::cout << "Change state\n";
 		Window *w = GetWindow(e.window);
 		if (w == NULL)
 			return;
@@ -843,26 +933,33 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 }
 
 void WindowManager::HandleConfigureRequest(xcb_configure_request_event_t &e){
+	bool del = false;
 	Window *w = GetWindow(e.window);
-	if (w){
-		uint32_t values[7];
-		int i = 0;
-		if (e.value_mask & XCB_CONFIG_WINDOW_X)
-			values[i++] = e.x;
-		if (e.value_mask & XCB_CONFIG_WINDOW_Y)
-			values[i++] = e.y;
-		if (e.value_mask & XCB_CONFIG_WINDOW_WIDTH)
-			values[i++] = e.width;
-		if (e.value_mask & XCB_CONFIG_WINDOW_HEIGHT)
-			values[i++] = e.height;
-		if (e.value_mask & XCB_CONFIG_WINDOW_BORDER_WIDTH)
-			values[i++] = e.border_width;
-		if (e.value_mask & XCB_CONFIG_WINDOW_SIBLING)
-			values[i++] = e.sibling;
-		if (e.value_mask & XCB_CONFIG_WINDOW_STACK_MODE)
-			values[i++] = e.stack_mode;
-		w->Configure(e.value_mask, values);
+	if (w == NULL){
+		del = true;
+		w = new Window(e.window);
 	}
+
+	uint32_t values[7];
+	int i = 0;
+	if (e.value_mask & XCB_CONFIG_WINDOW_X)
+		values[i++] = e.x;
+	if (e.value_mask & XCB_CONFIG_WINDOW_Y)
+		values[i++] = e.y;
+	if (e.value_mask & XCB_CONFIG_WINDOW_WIDTH)
+		values[i++] = e.width;
+	if (e.value_mask & XCB_CONFIG_WINDOW_HEIGHT)
+		values[i++] = e.height;
+	if (e.value_mask & XCB_CONFIG_WINDOW_BORDER_WIDTH)
+		values[i++] = e.border_width;
+	if (e.value_mask & XCB_CONFIG_WINDOW_SIBLING)
+		values[i++] = e.sibling;
+	if (e.value_mask & XCB_CONFIG_WINDOW_STACK_MODE)
+		values[i++] = e.stack_mode;
+	w->Configure(e.value_mask, values);
+
+	if (del)
+		delete w;
 }
 
 void WindowManager::SendEvent(xcb_window_t window, xcb_generic_event_t &event, xcb_event_mask_t mask){
@@ -941,6 +1038,19 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 	if (touch.size() == 3){
 		AcceptAllTouch();
 		touchGrab = !touchGrab;
+
+		// if disabling touchGrab, make sure there's a visual indicator
+		if (touchGrab == false){
+			for (WindowList::iterator itr = allWindows.begin(); itr != allWindows.end(); itr++){
+				if (itr->GetWindow() != e.event)
+					itr->SetOpacity(OPACITY_TRANSLUCENT);
+			}
+		} else {
+			for (WindowList::iterator itr = allWindows.begin(); itr != allWindows.end(); itr++){
+				if (itr->GetWindow() != e.event)
+					itr->SetOpacity(OPACITY_MAX);
+			}
+		}
 	}
 
 	if (!touchGrab){
@@ -1162,17 +1272,17 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 			break;
 		case WMWindow::HORZ_MAXIMIZE:
 			std::cout << "Horizontal maximize\n";
-			MaximizeWindow(wmMenu->GetTarget(), root, true, false);
+			MaximizeWindow(wmMenu->GetTarget(), root, TOGGLE, true, false);
 			//DeselectWindow();
 			break;
 		case WMWindow::VERT_MAXIMIZE:
 			std::cout << "Vertical maximize\n";
-			MaximizeWindow(wmMenu->GetTarget(), root, false, true);
+			MaximizeWindow(wmMenu->GetTarget(), root, TOGGLE, false, true);
 			//DeselectWindow();
 			break;
 		case WMWindow::MAXIMIZE:
 			std::cout << "Maximize\n";
-			MaximizeWindow(wmMenu->GetTarget(), root);
+			MaximizeWindow(wmMenu->GetTarget(), root, TOGGLE);
 			DeselectWindow();
 			break;
 		case WMWindow::MINIMIZE:
@@ -1220,17 +1330,27 @@ void WindowManager::HandleSelectionClear(xcb_selection_clear_event_t &e){
 }
 
 /*
+ *
+ */
+void WindowManager::HandleCreateNotify(xcb_create_notify_event_t &e){
+	if (GetWindow(e.window) == NULL){
+		Window window(e.window);
+		//std::cout << "Creating window " << window.GetTitle() << "\n";
+	}
+}
+
+/*
  * This method handles destroy notify events. This results in removing the
  * window from all internal lists.
  */
 void WindowManager::HandleDestroyNotify(xcb_destroy_notify_event_t &e){
-
 	xcb_window_t root = 0;
 
 	// first, find the window in the list of all windows. If found, store its
 	// root for later use in updating the client lists.
 	for (WindowList::iterator itr = allWindows.begin(); itr != allWindows.end(); itr++){
 		if (itr->GetWindow() == e.window){
+			//std::cout << "Destroying window " << itr->GetTitle() << "\n";
 			root = itr->GetRootWindow();
 			allWindows.erase(itr);
 			break;
@@ -1265,8 +1385,30 @@ void WindowManager::HandleDestroyNotify(xcb_destroy_notify_event_t &e){
 }
 
 void WindowManager::HandleConfigureNotify(xcb_configure_notify_event_t &e){
-	if (wmMenu && e.window == wmMenu->GetNativeWindow()){
-		//wmMenu->Draw();
+
+	// If this window is root of a screen, find the screen
+	Screen *screen = NULL;
+	for (ScreenList::iterator itr = screens.begin(); itr != screens.end(); itr++){
+		if (e.window == itr->GetRoot()){
+			screen = &(*itr);
+			break;
+		}
+	}
+
+	// if configuring a root window, apply appropriate changes to windows on that screen
+	// (e.g. resizing maximized windows, moving newly off-screen windows)
+	//if (screen){
+	Window *w = GetWindow(e.window);
+	if (screen || (w && w->GetType() == DOCK)){
+		for (WindowList::iterator itr = windows.begin(); itr != windows.end(); itr++){
+
+			// if maximized in either axis, re-maximize to new size
+			if (itr->GetWMState(MAXIMIZED_VERT) || itr->GetWMState(MAXIMIZED_HORZ))
+				MaximizeWindow(itr->GetWindow(), itr->GetRootWindow(), SET, itr->GetWMState(MAXIMIZED_HORZ), itr->GetWMState(MAXIMIZED_VERT));
+
+			//TODO: Support moving windows that are no longer visible
+
+		}
 	}
 }
 
@@ -1277,7 +1419,7 @@ void WindowManager::HandleExpose(xcb_expose_event_t &e){
 }
 
 /*
- * This method toggles the vertical and horizontal maximized states of 
+ * This method changes the vertical and horizontal maximized states of 
  * the specified window, using extended window manager hints. It ultimately
  * produces a CLIENT_MESSAGE event for the window manager. The actual size
  * changes are managed by the Window object in response to this event - this
@@ -1287,8 +1429,11 @@ void WindowManager::HandleExpose(xcb_expose_event_t &e){
  * Parameters:
  * 	window: the window to maximize
  * 	root: the root window of "window"
+ * 	change: the change to apply to maximization
+ * 	maxHorz: whether the change is applied to horizontal maximization
+ * 	maxVert: whether the change is applied to vertical maximization
  */
-void WindowManager::MaximizeWindow(xcb_window_t window, xcb_window_t root, bool maxHorz, bool maxVert){
+void WindowManager::MaximizeWindow(xcb_window_t window, xcb_window_t root, WMStateChange change, bool maxHorz, bool maxVert){
 
 	xcb_client_message_event_t event;
 	event.response_type = XCB_CLIENT_MESSAGE;
@@ -1296,7 +1441,7 @@ void WindowManager::MaximizeWindow(xcb_window_t window, xcb_window_t root, bool 
 	event.sequence = 0;
 	event.window = window;
 	event.type = ewmh()._NET_WM_STATE;
-	event.data.data32[0] = 2L; // 0 = remove, 1 = add, 2 = toggle
+	event.data.data32[0] = change; // 0 = remove, 1 = add, 2 = toggle
 	event.data.data32[1] = maxHorz ? ewmh()._NET_WM_STATE_MAXIMIZED_HORZ : 0L;
 	event.data.data32[2] = maxVert ? ewmh()._NET_WM_STATE_MAXIMIZED_VERT : 0L;
 	event.data.data32[3] = 0L;
