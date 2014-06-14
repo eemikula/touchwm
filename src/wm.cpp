@@ -854,6 +854,7 @@ void WindowManager::HandleClientMessage(xcb_client_message_event_t &e){
 				bottomWindows.remove(*w);
 				windows.push_front(*w);
 			}
+			RaiseWindow(*w, false);
 		} else if (e.data.data32[1] == ewmh()._NET_WM_STATE_HIDDEN){
 			w->Minimize(change);
 		} else {
@@ -1032,6 +1033,16 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 		return;
 	}
 
+	Window *w = GetWindow(event);
+
+	// This is a hack, but it makes XFCE's application menu work. Find out
+	// why, and fix this properly, because there are probably unintended
+	// consequences to this
+	if (w && w->GetType() == DOCK){
+		RejectTouch(e);
+		return;
+	}
+
 	touch.push_back(Touch(e.deviceid, e.detail, event, e.event_x / 65536.0, e.event_y / 65536.0, e.root_x / 65536.0, e.root_y / 65536.0));
 
 	// three touches means toggle touch grab
@@ -1058,7 +1069,6 @@ void WindowManager::HandleTouchBegin(xcb_input_touch_begin_event_t &e){
 		return;
 	}
 
-	Window *w = GetWindow(event);
 	if (w && captureTouch == false)
 		RaiseWindow(*w, true);
 
@@ -1214,8 +1224,6 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 
 	if (!touchWindow){
 		RejectTouch(e);
-		//xcb_flush(xcb());
-		//return;
 	} else {
 		AcceptAllTouch();
 	}
@@ -1228,6 +1236,9 @@ void WindowManager::HandleTouchEnd(xcb_input_touch_end_event_t &e){
 			break;
 		}
 	}
+
+	if (!touchWindow)
+		return;
 
 	Window *w = GetWindow(event);
 
