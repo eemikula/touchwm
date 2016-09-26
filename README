@@ -8,6 +8,9 @@ touchwm is a prototype of a window manager for touchscreen devices. It is
 intended to be a sandbox for experimenting with user interface concepts in
 in this setting.
 
+A video demo of the window manager is available at:
+https://www.youtube.com/watch?v=ITrs2PX0f6Y
+
 Requirements
 ============
 
